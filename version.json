@@ -1,12 +1,11 @@
 {
-  "version": "1.0.4",
+  "version": "1.0.5",
   "released_at": "2026-10-23",
-  "notes": "Enabled dual Super Admin (SA6303761588) and Cashier (6303761588) OTP/Authenticator login",
+  "notes": "Locked entire UI behind login screen until authenticated, plus exclusive SA6303761588 Super Admin access",
   "files": [
-    "main.py",
-    "app.js",
     "index.html",
-    "cloud_sync.py",
-    "gdrive_sync.py"
+    "app.js",
+    "main.py",
+    "cloud_sync.py"
   ]
 }

@@ -24,7 +24,12 @@ function handleAutoLogoutDueToInactivity() {
   currentUser = null;
   localStorage.removeItem('khs_user');
   
-  // Reset UI and show login dialog
+  // Hide main UI and show login dialog
+  const header = document.getElementById('appTopHeader');
+  const main = document.getElementById('appMainContainer');
+  if (header) header.classList.add('hidden');
+  if (main) main.classList.add('hidden');
+
   document.getElementById('userNameDisplay').innerText = "Session Timed Out";
   openLoginModal();
   alert("Session Locked: You have been logged out due to 15 minutes of inactivity for security.");
@@ -35,6 +40,13 @@ function handleManualLogout() {
     currentUser = null;
     localStorage.removeItem('khs_user');
     if (inactivityTimer) clearTimeout(inactivityTimer);
+
+    // Hide main UI and show login dialog
+    const header = document.getElementById('appTopHeader');
+    const main = document.getElementById('appMainContainer');
+    if (header) header.classList.add('hidden');
+    if (main) main.classList.add('hidden');
+
     document.getElementById('userNameDisplay').innerText = "Logged Out";
     openLoginModal();
   }
@@ -48,15 +60,23 @@ function handleManualLogout() {
 // ================= INITIALIZATION & AUTH =================
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Check localStorage for saved session or default to Front Desk (T3)
+  // Check localStorage for saved session
   const savedUser = localStorage.getItem('khs_user');
   if (savedUser) {
     currentUser = JSON.parse(savedUser);
     applyUserRoleUI();
     document.getElementById('loginModal').classList.add('hidden');
+    const header = document.getElementById('appTopHeader');
+    const main = document.getElementById('appMainContainer');
+    if (header) header.classList.remove('hidden');
+    if (main) main.classList.remove('hidden');
     resetInactivityTimer();
   } else {
-    // Open login modal by default
+    // Keep entire app hidden until authenticated
+    const header = document.getElementById('appTopHeader');
+    const main = document.getElementById('appMainContainer');
+    if (header) header.classList.add('hidden');
+    if (main) main.classList.add('hidden');
     openLoginModal();
   }
 
@@ -103,6 +123,10 @@ async function handleLoginSubmit(e) {
     currentUser = data.user;
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
+    const header = document.getElementById('appTopHeader');
+    const main = document.getElementById('appMainContainer');
+    if (header) header.classList.remove('hidden');
+    if (main) main.classList.remove('hidden');
     applyUserRoleUI();
     resetInactivityTimer();
 
@@ -1992,6 +2016,10 @@ async function handleVerifyOtpSubmit() {
     currentUser = data.user;
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
+    const header = document.getElementById('appTopHeader');
+    const main = document.getElementById('appMainContainer');
+    if (header) header.classList.remove('hidden');
+    if (main) main.classList.remove('hidden');
     applyUserRoleUI();
     resetInactivityTimer();
 
