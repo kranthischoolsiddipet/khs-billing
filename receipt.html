@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Official Fee Receipt — Kranthi High School</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style id="pagePrintStyle">
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    @page {
+      size: A5 portrait;
+      margin: 5mm;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body {
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .a4-page-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .receipt-card {
+        box-shadow: none !important;
+        border: 1.5px solid #64748b !important;
+        page-break-inside: avoid !important;
+        background-color: transparent !important;
+      }
+      .cut-line {
+        border-top: 2px dashed #334155 !important;
+      }
+    }
+
+    /* A5 specific scaling for optimal compactness */
+    .paper-a5 {
+      max-width: 580px !important;
+      padding: 6px !important;
+    }
+    .paper-a5 .receipt-card {
+      padding: 10px !important;
+    }
+    .paper-a5 #watermarkContainer {
+      width: 360px !important;
+      height: 360px !important;
+    }
+
+    /* A4 specific layout */
+    .paper-a4 {
+      max-width: 800px !important;
+      padding: 12px !important;
+    }
+    .paper-a4 .receipt-card {
+      padding: 16px !important;
+    }
+    .paper-a4 #watermarkContainer {
+      width: 520px !important;
+      height: 520px !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen py-6 px-3 flex flex-col items-center text-slate-800">
+
+  <!-- Top Action Bar (Hidden in Print) -->
+  <div class="max-w-[800px] w-full flex flex-wrap items-center justify-between gap-3 mb-4 no-print" id="topActionBar">
+    <div id="expiryBadge" class="flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 shadow-xs">
+      <i class="fa-solid fa-shield-halved"></i>
+      <span id="expiryText">Security Verified Split-Seal Protected</span>
+    </div>
+
+    <!-- Paper Size Selector & Print Trigger -->
+    <div class="flex items-center space-x-2">
+      <div class="flex items-center bg-white border border-slate-300 rounded-xl px-2.5 py-1 shadow-xs space-x-2">
+        <label for="paperSizeSelect" class="text-[11px] font-bold text-slate-600 flex items-center space-x-1 cursor-pointer">
+          <i class="fa-solid fa-file-lines text-indigo-600"></i>
+          <span>Paper Size:</span>
+        </label>
+        <select id="paperSizeSelect" onchange="changePaperSize(this.value)" class="text-xs font-bold text-slate-800 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none">
+          <option value="A5" selected>A5 (Half Page)</option>
+          <option value="A4">A4 (Full Page)</option>
+        </select>
+      </div>
+
+      <button onclick="triggerPrint()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-extrabold shadow-md flex items-center space-x-2 transition">
+        <i class="fa-solid fa-print"></i>
+        <span id="printBtnLabel">Print A5 Receipt</span>
+      </button>
+      <a href="/" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold shadow-xs transition">
+        Back to App
+      </a>
+    </div>
+  </div>
+
+  <!-- Single-Page Container with Split Security Emblem -->
+  <div id="receiptContainer" class="paper-a5 w-full a4-page-container relative overflow-hidden bg-white rounded-2xl shadow-xl border border-slate-200 transition-all duration-200">
+
+    <!-- ================= SINGLE FULL-PAGE SECURITY WATERMARK EMBLEM (SPLIT ACROSS CUT-LINE) ================= -->
+    <!-- Positioned directly at the exact vertical center (top: 50%) spanning both halves with deterministic rotation -->
+    <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] pointer-events-none z-0 flex items-center justify-center opacity-[0.06] select-none" id="watermarkContainer">
+      <img src="/static/khs_logo.png" id="securityLogo" class="w-full h-full object-contain filter grayscale contrast-125 transition-transform duration-300" alt="Security Seal">
+    </div>
+
+    <!-- Security Angle Verification Watermark Badge -->
+    <div class="absolute right-4 top-1/2 -translate-y-1/2 z-10 text-[9px] font-mono font-bold text-slate-400 uppercase tracking-widest bg-white/90 border border-slate-300 px-2 py-0.5 rounded shadow-2xs no-print">
+      Security Seal: <span id="sealAngleBadge">0°</span>
+    </div>
+
+    <div class="relative z-10 space-y-3">
+
+      <!-- ================= 1. PARENT COPY (TOP HALF) ================= -->
+      <div class="receipt-card bg-transparent rounded-xl border border-slate-300 p-4 relative">
+        <!-- Top Header Row -->
+        <div class="flex items-center justify-between border-b border-slate-300 pb-2.5">
+          <div class="flex items-center space-x-3">
+            <img src="/static/khs_logo.png" alt="KHS Logo" class="w-12 h-12 object-contain rounded-full border border-slate-200 p-0.5 bg-white shrink-0">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h1 class="text-base font-black text-slate-900 tracking-tight">KRANTHI HIGH SCHOOL</h1>
+                <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">Parent Copy</span>
+                <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-slate-100 text-slate-800 border border-slate-300 rBranchBadge">Branch 1</span>
+              </div>
+              <p class="text-[10px] text-slate-500"><span class="rBranchText">Branch 1</span> | Day Scholar & Residential Campus | Hyderabad Road | Contact: +91 98765 43210</p>
+            </div>
+          </div>
+          <div class="text-right">
+            <p class="text-xs font-black text-indigo-700 rReceiptNo">KHS-2026-XXXX</p>
+            <p class="text-[10px] text-slate-500 mt-0.5 rDate">--</p>
+          </div>
+        </div>
+
+        <!-- Compact 5-Column Student Grid -->
+        <div class="grid grid-cols-5 gap-2 my-2.5 text-[11px] bg-slate-50/50 p-2 rounded-lg border border-slate-200/80">
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Student Name</span>
+            <span class="font-extrabold text-slate-900 text-xs truncate block rStudentName">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Branch</span>
+            <span class="font-extrabold text-indigo-700 block rStudentBranch">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Admission No</span>
+            <span class="font-bold text-slate-800 block rAdmNo">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Class & Section</span>
+            <span class="font-bold text-slate-800 block rClass">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Parent Mobile</span>
+            <span class="font-bold text-slate-800 block rParentPhone">--</span>
+          </div>
+        </div>
+
+        <!-- Compact Financial Details Table -->
+        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2.5 bg-white/40 backdrop-blur-[0.5px]">
+          <thead class="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
+            <tr>
+              <th class="py-1 px-3">Installment / Purpose</th>
+              <th class="py-1 px-3">Payment Mode</th>
+              <th class="py-1 px-3">Ref / UTR</th>
+              <th class="py-1 px-3 text-right">Agreed Fee</th>
+              <th class="py-1 px-3 text-right">Previously Paid</th>
+              <th class="py-1 px-3 text-right">Paid Now</th>
+              <th class="py-1 px-3 text-right text-rose-700">Balance Due</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-800">
+            <tr>
+              <td class="py-1.5 px-3 font-semibold rInstallmentLabel">--</td>
+              <td class="py-1.5 px-3 font-semibold rPaymentMode">--</td>
+              <td class="py-1.5 px-3 font-mono text-[10px] rTxnRef">--</td>
+              <td class="py-1.5 px-3 text-right font-medium rTotalAgreed">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-medium rPrevPaid">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Bottom Signatures & Notes -->
+        <div class="flex items-center justify-between pt-1.5 text-[10px] text-slate-500 border-t border-slate-200">
+          <div>
+            <span>Cashier: <b class="text-slate-700 rCashier">KHS Billing Desk</b></span>
+          </div>
+          <div class="text-right">
+            <span class="border-t border-slate-400 pt-0.5 inline-block font-bold text-slate-700 px-4">Authorized Signatory</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= PERFORATED CUTTING LINE & SPLIT EMBLEM INTERSECTION ================= -->
+      <div class="relative flex items-center justify-center my-2">
+        <div class="w-full border-t-2 border-dashed border-slate-400 cut-line"></div>
+        <span class="absolute bg-white px-3 py-0.5 border border-slate-300 rounded-full text-[10px] font-bold text-slate-600 uppercase tracking-widest flex items-center space-x-1.5 shadow-xs">
+          <i class="fa-solid fa-scissors text-indigo-600"></i>
+          <span>Fold / Cut along this line</span>
+        </span>
+      </div>
+
+      <!-- ================= 2. SCHOOL COPY (BOTTOM HALF) ================= -->
+      <div class="receipt-card bg-transparent rounded-xl border border-slate-300 p-4 relative">
+        <!-- Top Header Row -->
+        <div class="flex items-center justify-between border-b border-slate-300 pb-2.5">
+          <div class="flex items-center space-x-3">
+            <img src="/static/khs_logo.png" alt="KHS Logo" class="w-12 h-12 object-contain rounded-full border border-slate-200 p-0.5 bg-white shrink-0">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h1 class="text-base font-black text-slate-900 tracking-tight">KRANTHI HIGH SCHOOL</h1>
+                <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-slate-100 text-slate-700 border border-slate-300">School Copy (Accounts Record)</span>
+                <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase bg-slate-100 text-slate-800 border border-slate-300 rBranchBadge">Branch 1</span>
+              </div>
+              <p class="text-[10px] text-slate-500"><span class="rBranchText">Branch 1</span> | Day Scholar & Residential Campus | Hyderabad Road | Contact: +91 98765 43210</p>
+            </div>
+          </div>
+          <div class="text-right">
+            <p class="text-xs font-black text-indigo-700 rReceiptNo">KHS-2026-XXXX</p>
+            <p class="text-[10px] text-slate-500 mt-0.5 rDate">--</p>
+          </div>
+        </div>
+
+        <!-- Compact 5-Column Student Grid -->
+        <div class="grid grid-cols-5 gap-2 my-2.5 text-[11px] bg-slate-50/50 p-2 rounded-lg border border-slate-200/80">
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Student Name</span>
+            <span class="font-extrabold text-slate-900 text-xs truncate block rStudentName">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Branch</span>
+            <span class="font-extrabold text-indigo-700 block rStudentBranch">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Admission No</span>
+            <span class="font-bold text-slate-800 block rAdmNo">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Class & Section</span>
+            <span class="font-bold text-slate-800 block rClass">--</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block text-[9px] uppercase font-bold">Parent Mobile</span>
+            <span class="font-bold text-slate-800 block rParentPhone">--</span>
+          </div>
+        </div>
+
+        <!-- Compact Financial Details Table -->
+        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2.5 bg-white/40 backdrop-blur-[0.5px]">
+          <thead class="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
+            <tr>
+              <th class="py-1 px-3">Installment / Purpose</th>
+              <th class="py-1 px-3">Payment Mode</th>
+              <th class="py-1 px-3">Ref / UTR</th>
+              <th class="py-1 px-3 text-right">Agreed Fee</th>
+              <th class="py-1 px-3 text-right">Previously Paid</th>
+              <th class="py-1 px-3 text-right">Paid Now</th>
+              <th class="py-1 px-3 text-right text-rose-700">Balance Due</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-800">
+            <tr>
+              <td class="py-1.5 px-3 font-semibold rInstallmentLabel">--</td>
+              <td class="py-1.5 px-3 font-semibold rPaymentMode">--</td>
+              <td class="py-1.5 px-3 font-mono text-[10px] rTxnRef">--</td>
+              <td class="py-1.5 px-3 text-right font-medium rTotalAgreed">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-medium rPrevPaid">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
+              <td class="py-1.5 px-3 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Bottom Signatures & Notes -->
+        <div class="flex items-center justify-between pt-1.5 text-[10px] text-slate-500 border-t border-slate-200">
+          <div class="flex items-center space-x-6">
+            <div>
+              <span class="border-t border-slate-400 pt-0.5 inline-block font-bold text-slate-700 px-4">Parent Signature</span>
+            </div>
+            <div>
+              <span>Cashier: <b class="text-slate-700 rCashier">KHS Billing Desk</b></span>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="border-t border-slate-400 pt-0.5 inline-block font-bold text-slate-700 px-4">Cashier / Staff Signature</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // Calculate deterministic security rotation angle from Receipt Number string
+    function computeSecurityAngle(receiptNo) {
+      if (!receiptNo) return 0;
+      let hash = 0;
+      for (let i = 0; i < receiptNo.length; i++) {
+        hash = (hash * 31 + receiptNo.charCodeAt(i)) % 360;
+      }
+      // Return angle between 10 deg and 350 deg (never purely 0/90/180 so it's always visibly rotated)
+      return (hash % 340) + 10;
+    }
+
+    async function loadReceipt() {
+      const pathParts = window.location.pathname.split('/');
+      const token = pathParts[pathParts.length - 1];
+
+      try {
+        const res = await fetch(`/api/receipt/${token}`);
+        if (!res.ok) {
+          document.body.innerHTML = `
+            <div class="p-8 text-center max-w-md bg-white rounded-xl shadow mt-20">
+              <i class="fa-solid fa-circle-exclamation text-rose-500 text-4xl mb-3"></i>
+              <h2 class="text-lg font-bold text-slate-800">Receipt Not Found or Link Expired</h2>
+              <p class="text-xs text-slate-500 mt-1">This digital receipt download link may have expired (48-hour limit) or is invalid.</p>
+              <a href="/" class="mt-4 inline-block bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold">Open KHS Billing</a>
+            </div>
+          `;
+          return;
+        }
+
+        const data = await res.json();
+        const p = data.payment;
+
+        // Apply Security Split-Logo Rotation
+        const angle = computeSecurityAngle(p.receipt_no);
+        const logoImg = document.getElementById('securityLogo');
+        if (logoImg) {
+          logoImg.style.transform = `rotate(${angle}deg)`;
+        }
+        const badgeAngle = document.getElementById('sealAngleBadge');
+        if (badgeAngle) {
+          badgeAngle.innerText = `${angle}° (Match Verified)`;
+        }
+
+        // Populate both Parent Copy and School Copy fields simultaneously
+        const branchName = p.branch || "Branch 1";
+        document.querySelectorAll('.rBranchBadge').forEach(el => el.innerText = branchName);
+        document.querySelectorAll('.rBranchText').forEach(el => el.innerText = branchName);
+        document.querySelectorAll('.rStudentBranch').forEach(el => el.innerText = branchName);
+
+        document.querySelectorAll('.rReceiptNo').forEach(el => el.innerText = p.receipt_no);
+        document.querySelectorAll('.rDate').forEach(el => el.innerText = p.payment_date);
+        document.querySelectorAll('.rStudentName').forEach(el => el.innerText = p.student_name);
+        document.querySelectorAll('.rAdmNo').forEach(el => el.innerText = p.admission_no);
+        document.querySelectorAll('.rClass').forEach(el => el.innerText = `${p.class_name} - ${p.section}`);
+        document.querySelectorAll('.rParentPhone').forEach(el => el.innerText = p.parent_phone);
+        
+        document.querySelectorAll('.rInstallmentLabel').forEach(el => el.innerText = p.installment_label || `Installment #${p.installment_no}`);
+        document.querySelectorAll('.rPaymentMode').forEach(el => el.innerText = p.payment_mode);
+        document.querySelectorAll('.rTxnRef').forEach(el => el.innerText = p.transaction_ref || 'N/A');
+        document.querySelectorAll('.rAmountPaid').forEach(el => el.innerText = `₹ ${Number(p.amount_paid).toLocaleString('en-IN')}`);
+
+        document.querySelectorAll('.rTotalAgreed').forEach(el => el.innerText = `₹ ${Number(p.total_agreed_fee).toLocaleString('en-IN')}`);
+        document.querySelectorAll('.rPrevPaid').forEach(el => el.innerText = `₹ ${Number(p.previously_paid).toLocaleString('en-IN')}`);
+        document.querySelectorAll('.rBalanceDue').forEach(el => el.innerText = `₹ ${Number(p.balance_due).toLocaleString('en-IN')}`);
+        document.querySelectorAll('.rCashier').forEach(el => el.innerText = p.collected_by);
+
+        if (data.is_expired) {
+          const badge = document.getElementById('expiryBadge');
+          badge.className = "flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-rose-100 text-rose-800";
+          document.getElementById('expiryText').innerText = "Digital link expired (Archive view)";
+        }
+
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // Dynamic Paper Size Handler (A5 vs A4)
+    function changePaperSize(size) {
+      const container = document.getElementById('receiptContainer');
+      const printBtnLabel = document.getElementById('printBtnLabel');
+      const styleEl = document.getElementById('pagePrintStyle');
+
+      if (size === 'A4') {
+        container.classList.remove('paper-a5');
+        container.classList.add('paper-a4');
+        printBtnLabel.innerText = "Print A4 Receipt";
+        // Update CSS @page size dynamically
+        if (styleEl) {
+          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*A5\s*portrait;/g, 'size: A4 portrait;').replace(/margin:\s*5mm;/g, 'margin: 8mm;');
+        }
+      } else {
+        container.classList.remove('paper-a4');
+        container.classList.add('paper-a5');
+        printBtnLabel.innerText = "Print A5 Receipt";
+        if (styleEl) {
+          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*A4\s*portrait;/g, 'size: A5 portrait;').replace(/margin:\s*8mm;/g, 'margin: 5mm;');
+        }
+      }
+    }
+
+    function triggerPrint() {
+      window.print();
+    }
+
+    loadReceipt();
+  </script>
+</body>
+</html>

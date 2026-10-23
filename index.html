@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kranthi High School — Fee Billing & Receipt Portal</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts: Plus Jakarta Sans -->
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .tab-active { background-color: #4f46e5 !important; color: white !important; font-weight: 700 !important; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- ================= TOP HEADER ================= -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      
+      <!-- School Identity (Clickable to return Home) -->
+      <div onclick="switchTab('welcome')" class="flex items-center space-x-3 cursor-pointer group hover:opacity-95 transition" title="Go to Home Screen">
+        <div class="w-10 h-10 rounded-full border border-slate-200 p-0.5 bg-white shadow-xs group-hover:border-indigo-400 transition">
+          <img src="/static/khs_logo.png" alt="KHS Logo" class="w-full h-full object-contain rounded-full">
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-base font-extrabold text-slate-900 tracking-tight group-hover:text-indigo-600 transition">Kranthi High School</h1>
+            <span id="roleBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-indigo-100 text-indigo-800">
+              Billing Console
+            </span>
+          </div>
+          <p class="text-xs text-slate-500">Official Fee Billing & Receipt Portal</p>
+        </div>
+      </div>
+
+      <!-- User Role Display & Action Buttons -->
+      <div class="flex items-center space-x-3">
+        <!-- Operator Info -->
+        <div class="flex items-center space-x-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 text-xs">
+          <i class="fa-solid fa-user-shield text-indigo-600"></i>
+          <span class="text-slate-500 font-medium">Logged as:</span>
+          <span id="userNameDisplay" class="font-bold text-slate-800">Not Logged In</span>
+        </div>
+
+        <!-- Quick Backup Button -->
+        <a href="/api/backup/download" title="Instant Offline Backup" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-cloud-arrow-down text-emerald-600"></i>
+          <span class="hidden sm:inline">Backup DB</span>
+        </a>
+
+        <!-- Switch User / Logout -->
+        <button onclick="openLoginModal()" class="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          <span>Switch Account</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================= ROLE PERMISSION BAR ================= -->
+  <div id="roleAlertBanner" class="hidden bg-indigo-50 border-b border-indigo-100 text-indigo-900 px-4 py-2 text-xs flex items-center justify-between">
+    <div class="max-w-7xl mx-auto w-full flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
+        <span class="font-bold" id="roleBannerTitle">Billing Desk:</span>
+        <span class="text-indigo-700" id="roleBannerDesc"></span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span id="pendingDiscountBadge" onclick="switchTab('discounts')" class="hidden cursor-pointer bg-rose-500 text-white font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-xs hover:bg-rose-600 transition">
+          <i class="fa-solid fa-bell mr-1"></i> <span id="pendingDiscountCount">0</span> Approvals Waiting
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MAIN BODY CONTAINER (VERTICAL SIDEBAR LAYOUT) ================= -->
+  <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-6 w-full flex-1 flex flex-col md:flex-row gap-6">
+
+    <!-- Vertical Left Sidebar Navigation -->
+    <aside class="w-full md:w-64 shrink-0">
+      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs sticky top-20 space-y-1">
+        <div class="px-3 py-2 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">
+          Navigation Menu
+        </div>
+
+        <!-- 1. Home Dashboard -->
+        <button onclick="switchTab('welcome')" id="tab-welcome" class="tab-active w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center space-x-3 transition">
+          <i class="fa-solid fa-house w-4 text-center"></i>
+          <span>Home</span>
+        </button>
+
+        <!-- Category: Student Onboarding & Admissions -->
+        <div class="pt-2 px-3 pb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+          Student Admissions
+        </div>
+
+        <!-- 2. New Admission -->
+        <button onclick="switchTab('admit')" id="tab-admit" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-user-plus w-4 text-center text-indigo-600"></i>
+          <span>New Admission</span>
+        </button>
+
+        <!-- 3. Bulk Import Existing Students -->
+        <button onclick="switchTab('import')" id="tab-import" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-file-excel w-4 text-center text-emerald-600"></i>
+          <span>Bulk Student Import</span>
+        </button>
+
+        <!-- Category: Daily Billing & Records -->
+        <div class="pt-2 px-3 pb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+          Daily Billing & Records
+        </div>
+
+        <!-- 4. Fee Collection & Installments -->
+        <button onclick="switchTab('collect')" id="tab-collect" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-cash-register w-4 text-center text-indigo-600"></i>
+          <span>Fee Collection</span>
+        </button>
+
+        <!-- 5. Enrolled Students (Class-wise Register) -->
+        <button onclick="switchTab('classwise')" id="tab-classwise" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-graduation-cap w-4 text-center text-indigo-600"></i>
+          <span>Enrolled Students</span>
+        </button>
+
+        <!-- 6. Fee Structure (Reference for all, editable by Admin) -->
+        <button onclick="switchTab('feemaster')" id="tab-feemaster" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-sliders w-4 text-center text-indigo-600"></i>
+          <span id="tabFeeMasterLabel">Fee Structure</span>
+        </button>
+
+        <!-- Category: Governance, Reporting & Admin -->
+        <div id="adminNavGroupHeader" class="pt-2 px-3 pb-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider border-t border-slate-100 mt-1">
+          Admin Governance
+        </div>
+
+        <!-- 7. Approvals Queue (Discounts, Edits, Cancellations, Bulk Imports) -->
+        <button onclick="switchTab('discounts')" id="tab-discounts" class="relative w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-clipboard-check w-4 text-center text-indigo-600"></i>
+          <span class="flex-1">Approvals</span>
+          <span id="navDiscountDot" class="w-2 h-2 rounded-full bg-rose-500 hidden"></span>
+        </button>
+
+        <!-- 8. Day-End Reports & Audits -->
+        <button onclick="switchTab('reports')" id="tab-reports" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-chart-line w-4 text-center text-indigo-600"></i>
+          <span>EOD Reports & Summary</span>
+        </button>
+
+        <!-- 9. Staff User Management -->
+        <button onclick="switchTab('staff')" id="tab-staff" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-user-gear w-4 text-center text-indigo-600"></i>
+          <span>Staff & Cashiers</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 min-w-0">
+
+    <!-- ================= WELCOME / SPLASH SCREEN (Shown upon login before clicking other tabs) ================= -->
+    <section id="sec-welcome" class="space-y-6">
+      <div class="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 shadow-xs text-center flex flex-col items-center justify-center min-h-[520px]">
+        <!-- Big School Logo -->
+        <div class="w-36 h-36 sm:w-44 sm:h-44 rounded-full border-4 border-indigo-50 shadow-md p-3 bg-white mb-6 flex items-center justify-center">
+          <img src="/static/khs_logo.png" alt="Kranthi High School Logo" class="w-full h-full object-contain rounded-full">
+        </div>
+
+        <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">
+          Kranthi High School
+        </h2>
+        <p class="text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 px-4 py-1.5 rounded-full uppercase tracking-wider mb-4 border border-indigo-100">
+          Official Fee Billing & Student Ledger Portal
+        </p>
+
+        <p class="text-xs sm:text-sm text-slate-500 max-w-lg leading-relaxed">
+          Welcome to the billing desk console. Please select an option from the navigation menu on the left to start collecting fees, enrolling new students, or viewing standard fee structures.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= SECTION 1: FEE COLLECTION (INSTALLMENTS) - UNIFIED CARD ================= -->
+    <section id="sec-collect" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        
+        <!-- Top Search Bar & Switch Student Control -->
+        <div class="border-b border-slate-200 pb-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+            <div>
+              <h2 class="text-base font-extrabold text-slate-900 flex items-center space-x-2">
+                <i class="fa-solid fa-cash-register text-indigo-600"></i>
+                <span>Fee Collection & Installments</span>
+              </h2>
+              <p class="text-xs text-slate-500">Search student by Admission No, Name, or Mobile to collect installment fees</p>
+            </div>
+            <div class="flex items-center space-x-2">
+              <select id="quickDaySheetBranchSelect" class="text-xs border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold bg-white text-indigo-900 shadow-xs focus:ring-2 focus:ring-indigo-500" title="Select branch scope for today's collection printout">
+                <option value="All">All Branches</option>
+                <option value="Branch 1">Branch 1</option>
+                <option value="Branch 2">Branch 2</option>
+              </select>
+              <button onclick="printEodDaySheet()" class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl border border-slate-300 transition flex items-center space-x-1.5 shadow-xs" title="Print today's collection register and cash handover sheet">
+                <i class="fa-solid fa-print text-indigo-600"></i>
+                <span>Print Today's Day Sheet</span>
+              </button>
+              <div id="quickChangeStudentBtn" class="hidden">
+                <button onclick="clearSelectedStudent()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl border border-indigo-200 transition flex items-center space-x-1.5">
+                  <i class="fa-solid fa-arrows-rotate"></i>
+                  <span>Search Different Student</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Unified Search Input with Autocomplete Results -->
+          <div class="relative max-w-2xl">
+            <input type="text" id="studentSearchInput" oninput="debounceSearch()" placeholder="Type Admission No, Student Name, or Phone (e.g. KHS-2026-001 or RAHUL)..." class="w-full pl-10 pr-10 py-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-xs">
+            <i class="fa-solid fa-search absolute left-3.5 top-3.5 text-slate-400 text-xs"></i>
+            <button type="button" onclick="document.getElementById('studentSearchInput').value=''; debounceSearch();" class="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600">
+              <i class="fa-solid fa-circle-xmark text-xs"></i>
+            </button>
+
+            <!-- Dropdown Results Floating Box -->
+            <div id="searchResultsList" class="hidden absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl z-30 max-h-72 overflow-y-auto divide-y divide-slate-100">
+              <p class="text-[11px] text-slate-400 text-center py-4">Search to find registered students</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- State 1: Placeholder when No Student is Selected -->
+        <div id="noStudentSelectedMsg" class="py-16 text-center text-slate-400 space-y-2">
+          <div class="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-2xl text-slate-400">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </div>
+          <h3 class="font-bold text-slate-700 text-sm">No Student Selected</h3>
+          <p class="text-xs text-slate-400 max-w-md mx-auto">
+            Use the search bar above to look up any student. Their fee ledger, previous payment receipts, and installment collection form will appear here.
+          </p>
+        </div>
+
+        <!-- State 2: Student Details & Payment Entry Form -->
+        <div id="selectedStudentPanel" class="hidden space-y-6">
+          <!-- Student Header Banner -->
+          <div class="flex flex-wrap items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200 gap-3">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-base font-extrabold text-slate-900" id="selStudentName">--</h3>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800" id="selStudentClass">Class 1-A</span>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800" id="selStudentType">Day Scholar</span>
+                <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full" id="selStudentStatus">Active</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">
+                Adm No: <span class="font-bold text-slate-800" id="selAdmNo">--</span> | 
+                Parent: <span class="font-semibold text-slate-800" id="selParentName">--</span> (<span id="selParentPhone">--</span>)
+              </p>
+              <!-- Dynamic alert banner when an approval is pending or cancelled -->
+              <div id="selPendingApprovalAlert" class="hidden mt-2 p-2.5 rounded-xl text-xs font-bold border flex items-center space-x-2">
+                <span id="selPendingApprovalIcon"></span>
+                <span id="selPendingApprovalText"></span>
+              </div>
+            </div>
+
+            <!-- Financial Highlights & Student Actions -->
+            <div class="flex items-center space-x-3">
+              <div class="text-right">
+                <p class="text-[10px] text-slate-500">Agreed Annual Fee</p>
+                <p class="text-xs font-bold text-slate-800" id="selTotalAgreed">₹ 0</p>
+              </div>
+              <div class="text-right">
+                <p class="text-[10px] text-slate-500">Total Paid</p>
+                <p class="text-xs font-bold text-emerald-700" id="selTotalPaid">₹ 0</p>
+              </div>
+              <div class="text-right bg-rose-50 px-3 py-1 rounded-lg border border-rose-100">
+                <p class="text-[10px] text-rose-600 font-bold">Balance Due</p>
+                <p class="text-sm font-black text-rose-700" id="selBalanceDue">₹ 0</p>
+              </div>
+
+              <!-- Student Governance Action Buttons -->
+              <div class="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                <button type="button" onclick="openRequestEditModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-2.5 py-1.5 rounded-xl transition flex items-center space-x-1" title="Request Admin Approval to modify student details">
+                  <i class="fa-solid fa-user-pen"></i>
+                  <span>Request Edit</span>
+                </button>
+                <button type="button" onclick="openRequestCancelModal()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-2.5 py-1.5 rounded-xl transition flex items-center space-x-1" title="Request Admin Approval to cancel admission">
+                  <i class="fa-solid fa-user-xmark"></i>
+                  <span>Cancel Admission</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Collect Payment Form -->
+          <div class="border border-indigo-100 bg-indigo-50/40 p-5 rounded-2xl space-y-4">
+            <h4 class="text-xs font-extrabold text-indigo-950 uppercase tracking-wider flex items-center space-x-2">
+              <i class="fa-solid fa-hand-holding-dollar text-indigo-600"></i>
+              <span>Collect Installment Amount</span>
+            </h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-[11px] font-bold text-slate-700">Amount to Pay (₹) *</label>
+                  <span id="payMaxLimitHint" class="text-[10px] text-slate-400 font-semibold"></span>
+                </div>
+                <input type="text" id="payAmountInput" oninput="this.value = this.value.replace(/[^0-9]/g, ''); handlePayAmountChange(this);" placeholder="Numbers only, e.g. 5000" class="w-full px-3 py-2 text-sm font-extrabold text-indigo-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                <p id="payAmountWarning" class="text-[10px] text-rose-600 font-bold mt-1 hidden"></p>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Payment Mode *</label>
+                <select id="payModeSelect" class="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500">
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI / PhonePe / GPay</option>
+                  <option value="Cheque">Cheque</option>
+                  <option value="Bank Transfer">Bank Transfer / NEFT</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Transaction Ref / UTR / Cheque #</label>
+                <input type="text" id="payRefInput" placeholder="Optional for Cash" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Installment Note / Label</label>
+                <input type="text" id="payLabelInput" placeholder="e.g. 2nd Installment / Term 2" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+              </div>
+              <div class="flex items-end">
+                <button onclick="submitInstallmentPayment()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center space-x-2 transition">
+                  <i class="fa-solid fa-print"></i>
+                  <span>Generate Official Receipt & WhatsApp</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Previous Installments Ledger -->
+          <div>
+            <h4 class="text-xs font-bold text-slate-800 mb-2">Previous Payment History (Receipts)</h4>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th class="p-2.5">Receipt #</th>
+                    <th class="p-2.5">Date</th>
+                    <th class="p-2.5">Installment</th>
+                    <th class="p-2.5">Mode</th>
+                    <th class="p-2.5 text-right">Paid</th>
+                    <th class="p-2.5 text-right">Balance After</th>
+                    <th class="p-2.5 text-center">Receipt Action</th>
+                  </tr>
+                </thead>
+                <tbody id="paymentHistoryRows" class="divide-y divide-slate-100 text-slate-700">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION 2: NEW ADMISSION & 1ST INSTALLMENT ================= -->
+    <section id="sec-admit" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-4xl mx-auto">
+        <div class="border-b border-slate-200 pb-4 mb-5 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900">Student Admission & Fee Setup</h2>
+            <p class="text-xs text-slate-500">Configure standard fee, optional transport, discount request, and 1st installment payment</p>
+          </div>
+          <span class="text-xs bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-full border border-indigo-200">Academic Year 2026-2027</span>
+        </div>
+
+        <form id="admissionForm" onsubmit="handleAdmissionSubmit(event)" class="space-y-6">
+          
+          <!-- Student Basic Details -->
+          <div>
+            <h3 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-3">1. Student Information</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Admission Number *</label>
+                <input type="text" id="admNo" required oninput="formatAdmissionNo(this)" placeholder="KHSB1-2026-001" class="w-full px-3 py-2 text-xs font-mono font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                <p class="text-[9px] text-slate-400 mt-0.5">Format: KHSB1-YYYY-number / KHSB2-YYYY-number</p>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Student First Name *</label>
+                <input type="text" id="admFirstName" required oninput="this.value = this.value.toUpperCase()" placeholder="FIRST NAME" class="w-full px-3 py-2 text-xs uppercase font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Student Last Name *</label>
+                <input type="text" id="admLastName" required oninput="this.value = this.value.toUpperCase()" placeholder="LAST NAME" class="w-full px-3 py-2 text-xs uppercase font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Roll Number</label>
+                <input type="text" id="admRoll" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="Numbers only" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-5 gap-3 mt-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">School Branch *</label>
+                <select id="admBranch" onchange="handleAdmissionBranchChange()" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-white text-indigo-900 focus:ring-2 focus:ring-indigo-500">
+                  <option value="Branch 1" selected>Branch 1</option>
+                  <option value="Branch 2">Branch 2</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Class / Grade *</label>
+                <select id="admClass" onchange="recalculateBaseFee()" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500">
+                  <option value="PP1">PP1 (Pre-Primary 1)</option>
+                  <option value="PP2">PP2 (Pre-Primary 2)</option>
+                  <option value="Class 1">Class 1</option>
+                  <option value="Class 2">Class 2</option>
+                  <option value="Class 3">Class 3</option>
+                  <option value="Class 4">Class 4</option>
+                  <option value="Class 5">Class 5</option>
+                  <option value="Class 6">Class 6</option>
+                  <option value="Class 7">Class 7</option>
+                  <option value="Class 8" selected>Class 8</option>
+                  <option value="Class 9">Class 9</option>
+                  <option value="Class 10">Class 10</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Section</label>
+                <select id="admSection" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white">
+                  <option value="A">Section A</option>
+                  <option value="B">Section B</option>
+                  <option value="C">Section C</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Gender</label>
+                <select id="admGender" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white">
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </select>
+              </div>
+
+              <!-- Day Scholar vs Residential -->
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Student Category *</label>
+                <select id="admStudentType" onchange="toggleTransportSection(); recalculateBaseFee();" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-indigo-500">
+                  <option value="Day Scholar">Day Scholar</option>
+                  <option value="Residential">Residential (Hostel)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Transport Section (Conditional for Day Scholar) -->
+          <div id="transportSectionWrapper" class="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-3">
+            <div class="flex items-center space-x-3">
+              <input type="checkbox" id="admHasTransport" onchange="toggleTransportInput()" class="w-4 h-4 text-indigo-600 rounded">
+              <label for="admHasTransport" class="text-xs font-bold text-amber-950 cursor-pointer">
+                Opt for School Transport / Bus Facility
+              </label>
+            </div>
+
+            <div id="transportInputs" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Transport Fee Amount (₹) *</label>
+                <input type="text" id="admTransportFee" oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateAgreedFeePreview();" placeholder="Numbers only, e.g. 12000" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Bus Route / Pickup Point</label>
+                <input type="text" id="admBusRoute" placeholder="e.g. Route #3 - Dilsukhnagar" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- Parent Contact Details -->
+          <div>
+            <h3 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider mb-3">2. Parent / Guardian Contact (For Receipt WhatsApp/SMS)</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Parent Name *</label>
+                <input type="text" id="admParentName" required oninput="this.value = this.value.toUpperCase()" placeholder="ALL CAPS, E.G. RAJESH SHARMA" class="w-full px-3 py-2 text-xs uppercase font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Mobile / WhatsApp Number *</label>
+                <input type="tel" id="admParentPhone" required maxlength="10" minlength="10" pattern="[0-9]{10}" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10)" placeholder="10-digit mobile" class="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Residential Address</label>
+                <input type="text" id="admAddress" placeholder="Colony, City" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- Fee Calculation, Discount & 1st Installment -->
+          <div class="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-200 space-y-4">
+            <h3 class="text-xs font-extrabold text-indigo-950 uppercase tracking-wider">3. Fee Calculation & 1st Installment Payment</h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-white p-4 rounded-xl border border-slate-200 text-xs">
+              <div>
+                <span class="text-slate-500">Class Base Fee:</span>
+                <p class="font-bold text-slate-900 text-sm" id="calcBaseFeeText">₹ 0</p>
+              </div>
+              <div>
+                <span class="text-slate-500">Transport Fee:</span>
+                <p class="font-bold text-slate-900 text-sm" id="calcTransportText">₹ 0</p>
+              </div>
+              <div>
+                <span class="text-slate-500">Discount Amount:</span>
+                <p class="font-bold text-rose-600 text-sm" id="calcDiscountText">₹ 0</p>
+              </div>
+              <div class="bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                <span class="text-emerald-800 font-bold">Final Agreed Fee:</span>
+                <p class="font-black text-emerald-900 text-base" id="calcFinalAgreedText">₹ 0</p>
+              </div>
+            </div>
+
+            <!-- Discount Request Field & Approval Workflow -->
+            <div class="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">Discount Amount Requested (₹)</label>
+                  <input type="text" id="admDiscountAmount" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onDiscountInputChanged();" placeholder="Numbers only (0 if no discount)" class="w-full px-3 py-2 text-xs font-bold text-slate-800 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">Reason for Discount</label>
+                  <input type="text" id="admDiscountReason" oninput="onDiscountInputChanged()" placeholder="e.g. Sibling concession / Meritorious student" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                </div>
+              </div>
+
+              <!-- Instant Request Approval Bar & Status Indicator -->
+              <div id="discountApprovalControlBar" class="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 gap-2">
+                <div class="flex items-center space-x-2">
+                  <span class="text-xs font-bold text-slate-600">Approval Status:</span>
+                  <span id="discountStatusBadge" class="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                    No Discount Requested
+                  </span>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                  <!-- Highlighted Button: Request Approval -->
+                  <button type="button" id="btnRequestDiscountApproval" onclick="submitDiscountForApproval()" class="hidden bg-amber-500 hover:bg-amber-600 text-slate-900 font-extrabold text-xs px-4 py-2 rounded-xl shadow-md transition flex items-center space-x-2">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Request Approval</span>
+                  </button>
+
+                  <!-- Modify Discount Button (When approved or pending, allows modifying) -->
+                  <button type="button" id="btnModifyDiscount" onclick="enableDiscountModification()" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl transition flex items-center space-x-1.5">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                    <span>Modify Discount</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Guidance Note when approval required -->
+              <div id="discountBlockAlert" class="hidden bg-rose-50 text-rose-700 text-xs p-2.5 rounded-xl border border-rose-200 flex items-center space-x-2">
+                <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
+                <span id="discountBlockAlertText">Please click "Request Approval" above. Admin must approve the discount before you can submit the admission.</span>
+              </div>
+            </div>
+
+            <!-- 1st Installment Payment During Admission -->
+            <div class="border-t border-indigo-200 pt-4 mt-2">
+              <h4 class="text-xs font-bold text-indigo-900 mb-2">Collect 1st Installment at Admission (Optional)</h4>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">1st Installment Paid (₹)</label>
+                  <input type="text" id="admInitialPay" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="Numbers only, e.g. 10000" class="w-full px-3 py-2 text-xs font-bold text-emerald-800 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">Payment Mode</label>
+                  <select id="admPayMode" class="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-xl bg-white">
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI / PhonePe / GPay</option>
+                    <option value="Cheque">Cheque</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">Transaction Ref / Cheque #</label>
+                  <input type="text" id="admPayRef" placeholder="Optional" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl">
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Submit Admission -->
+          <div class="flex justify-end space-x-3 pt-2">
+            <button type="reset" onclick="resetAdmissionFormState()" class="px-5 py-2.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200">Reset</button>
+            <button type="submit" id="btnSubmitAdmission" class="px-6 py-2.5 rounded-xl text-xs font-extrabold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md flex items-center space-x-2 transition disabled:opacity-50 disabled:cursor-not-allowed">
+              <i class="fa-solid fa-check"></i>
+              <span>Complete Admission & Print Receipt</span>
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </section>
+
+    <!-- ================= SECTION 3: DISCOUNT APPROVALS ================= -->
+    <section id="sec-discounts" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-5xl mx-auto">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900">Admin Approvals Desk</h2>
+            <p class="text-xs text-slate-500">Review and approve fee discounts, admission detail changes, and admission cancellations</p>
+          </div>
+          <button onclick="loadPendingDiscounts(); loadPendingAdmissionChanges();" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-arrows-rotate"></i>
+            <span>Refresh Queue</span>
+          </button>
+        </div>
+
+        <div id="noDiscountsMsg" class="py-12 text-center text-slate-400">
+          <i class="fa-solid fa-tags text-4xl mb-2 text-slate-300"></i>
+          <p class="text-xs font-semibold">No pending discount requests waiting for approval.</p>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 rounded-xl mb-6">
+          <table class="w-full text-left text-xs" id="discountTable">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3">Req ID</th>
+                <th class="p-3">Student & Class</th>
+                <th class="p-3">Gross Base Fee</th>
+                <th class="p-3">Requested Discount</th>
+                <th class="p-3">Staff Reason</th>
+                <th class="p-3">Requested By</th>
+                <th class="p-3 text-right">Approve / Reject Action</th>
+              </tr>
+            </thead>
+            <tbody id="discountQueueRows" class="divide-y divide-slate-100 text-slate-800">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Part 2: Admission Edits & Cancellation Approvals -->
+        <div class="border-t border-slate-200 pt-5 mt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-extrabold text-slate-900 flex items-center space-x-1.5">
+                <i class="fa-solid fa-user-shield text-indigo-600"></i>
+                <span>Admission Changes & Cancellation Queue</span>
+              </h3>
+              <p class="text-[11px] text-slate-500">Review proposed changes to student details or cancellation requests from billing staff</p>
+            </div>
+          </div>
+
+          <div id="noAdmissionChangesMsg" class="py-8 text-center text-slate-400">
+            <i class="fa-solid fa-check-double text-3xl mb-1 text-slate-300"></i>
+            <p class="text-xs font-semibold">No pending admission modification or cancellation requests.</p>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs" id="admissionChangesTable">
+              <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Type</th>
+                  <th class="p-3">Admission No</th>
+                  <th class="p-3">Current Details</th>
+                  <th class="p-3">Proposed Changes / Reason</th>
+                  <th class="p-3">Requested By</th>
+                  <th class="p-3 text-right">Admin Action</th>
+                </tr>
+              </thead>
+              <tbody id="admissionChangesRows" class="divide-y divide-slate-100 text-slate-800">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Part 3: Bulk Student Import Approval Queue -->
+        <div class="border-t border-slate-200 pt-5 mt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-extrabold text-slate-900 flex items-center space-x-1.5">
+                <i class="fa-solid fa-file-excel text-emerald-600"></i>
+                <span>Bulk Excel Import Approval Queue</span>
+              </h3>
+              <p class="text-[11px] text-slate-500">Review and approve bulk student lists uploaded by front desk billing staff before saving into database</p>
+            </div>
+          </div>
+
+          <div id="noImportBatchesMsg" class="py-8 text-center text-slate-400">
+            <i class="fa-solid fa-folder-open text-3xl mb-1 text-slate-300"></i>
+            <p class="text-xs font-semibold">No pending bulk student imports waiting for approval.</p>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs" id="importBatchesTable">
+              <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Batch ID</th>
+                  <th class="p-3">File Name</th>
+                  <th class="p-3">Students Count</th>
+                  <th class="p-3">Uploaded By & Time</th>
+                  <th class="p-3">Sample Preview</th>
+                  <th class="p-3 text-right">Admin Action</th>
+                </tr>
+              </thead>
+              <tbody id="importBatchesRows" class="divide-y divide-slate-100 text-slate-800">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION 4: FEE MASTER (T1 & T2) ================= -->
+    <section id="sec-feemaster" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-5xl mx-auto">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-5">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900" id="feeMasterSecHeading">Standard School Fee Structure</h2>
+            <p class="text-xs text-slate-500">Base annual fees per class for Day Scholars & Residential students</p>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3">Class / Grade</th>
+                <th class="p-3">Category</th>
+                <th class="p-3">Tuition Fee</th>
+                <th class="p-3">Activity Fee</th>
+                <th class="p-3">Exam Fee</th>
+                <th class="p-3">Hostel / Residential</th>
+                <th class="p-3 text-right">Total Base Fee</th>
+                <th class="p-3 text-center" id="thEditFeeMaster">Edit</th>
+              </tr>
+            </thead>
+            <tbody id="feeMasterRows" class="divide-y divide-slate-100 text-slate-800">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= SECTION 5: EOD REPORTS & 9PM SUMMARY ================= -->
+    <section id="sec-reports" class="hidden space-y-6">
+      <div class="max-w-5xl mx-auto space-y-6">
+        
+        <!-- Summary Headline Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <span class="text-[11px] font-bold text-slate-500">Total Today Collection</span>
+            <p class="text-xl font-black text-indigo-900 mt-1" id="eodTotalAmount">₹ 0</p>
+            <span class="text-[10px] text-slate-400" id="eodReceiptCount">0 Receipts</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <span class="text-[11px] font-bold text-emerald-700">Cash In Hand</span>
+            <p class="text-xl font-black text-emerald-700 mt-1" id="eodCashAmount">₹ 0</p>
+            <span class="text-[10px] text-slate-400">Physical Cash</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <span class="text-[11px] font-bold text-blue-700">UPI / QR Collections</span>
+            <p class="text-xl font-black text-blue-700 mt-1" id="eodUpiAmount">₹ 0</p>
+            <span class="text-[10px] text-slate-400">Direct Bank Credit</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+            <span class="text-[11px] font-bold text-purple-700">Cheque / Bank Transfer</span>
+            <p class="text-xl font-black text-purple-700 mt-1" id="eodBankAmount">₹ 0</p>
+            <span class="text-[10px] text-slate-400">Clearing / NEFT</span>
+          </div>
+        </div>
+
+        <!-- 4:30 PM WhatsApp / SMS Daily Summary Preview -->
+        <div class="bg-indigo-950 text-white p-5 rounded-2xl shadow-md border border-indigo-900 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i class="fa-brands fa-whatsapp text-emerald-400 text-lg"></i>
+              <h3 class="text-xs font-extrabold uppercase tracking-wider text-indigo-200">
+                End-Of-Day 4:30 PM IST Notification Message (Sent to Super Admin & Admin)
+              </h3>
+            </div>
+            <button onclick="copyEodMsg()" class="bg-indigo-800 hover:bg-indigo-700 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition">
+              <i class="fa-solid fa-copy mr-1"></i> Copy Message
+            </button>
+          </div>
+          <pre id="eodMsgBox" class="bg-indigo-900/60 p-3 rounded-xl font-mono text-xs text-indigo-100 whitespace-pre-wrap select-all">Loading summary...</pre>
+        </div>
+
+        <!-- Day Transaction Log -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 class="text-xs font-extrabold text-slate-900">Today's Transactions Register</h3>
+              <p class="text-[11px] text-slate-400">All installment receipts collected on selected date</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="eodBranchSelect" onchange="loadEodReport()" class="text-xs border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold bg-white text-indigo-900">
+                <option value="All">All Branches</option>
+                <option value="Branch 1">Branch 1</option>
+                <option value="Branch 2">Branch 2</option>
+              </select>
+              <input type="date" id="eodDatePicker" onchange="loadEodReport()" class="text-xs border border-slate-300 rounded-xl px-2.5 py-1.5 font-bold">
+              <button onclick="printEodDaySheet()" class="bg-slate-900 hover:bg-black text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-print"></i>
+                <span>Print Day Sheet & Cash Handover</span>
+              </button>
+              <a href="/api/backup/download" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-download"></i>
+                <span>Download Backup (.db)</span>
+              </a>
+              <input type="file" id="dbRestoreFileInput" accept=".db" class="hidden" onchange="handleRestoreDbFileChosen()">
+              <button onclick="triggerRestoreDbClick()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition flex items-center space-x-1.5" title="Restore database from an existing .db backup file">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <span>Restore Backup</span>
+              </button>
+              <button onclick="openGDriveModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition flex items-center space-x-1.5" title="Configure or sync backup directly to Google Drive">
+                <i class="fa-brands fa-google-drive"></i>
+                <span>Google Drive Sync</span>
+              </button>
+              <button onclick="openCloudSyncModal()" class="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-xs transition flex items-center space-x-1.5" title="Real-Time Cloud Synchronization between Branch 1 & Branch 2">
+                <i class="fa-solid fa-arrows-rotate"></i>
+                <span>Multi-Branch Real-Time Sync</span>
+              </button>
+            </div>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-2.5">Time</th>
+                  <th class="p-2.5">Receipt #</th>
+                  <th class="p-2.5">Student</th>
+                  <th class="p-2.5">Installment</th>
+                  <th class="p-2.5">Mode</th>
+                  <th class="p-2.5">Cashier</th>
+                  <th class="p-2.5 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody id="eodTransactionsRows" class="divide-y divide-slate-100 text-slate-700">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION 6: BULK IMPORT EXISTING STUDENTS ================= -->
+    <section id="sec-import" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-4xl mx-auto space-y-6">
+        <div class="border-b border-slate-200 pb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900">Bulk Import Existing School Students</h2>
+            <p class="text-xs text-slate-500">Upload your existing student list using Excel (.xlsx) with past payment carry-forward</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button id="btnGenerateSampleStudents" onclick="loadDemoSampleStudents()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-2 rounded-xl text-xs border border-emerald-200 flex items-center space-x-1.5 transition">
+              <i class="fa-solid fa-users text-emerald-600"></i>
+              <span>Generate 5 Sample Students (For Testing)</span>
+            </button>
+            <a href="/api/students/download-template" download="KHS_Existing_Students_Template.xlsx" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs shadow-xs flex items-center space-x-2 transition">
+              <i class="fa-solid fa-file-excel text-base"></i>
+              <span>Download Sample Excel Template</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Instructions Card -->
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
+          <p class="font-bold text-slate-800 flex items-center space-x-1.5">
+            <i class="fa-solid fa-circle-info text-indigo-600"></i>
+            <span>How to Import Your Existing Students:</span>
+          </p>
+          <ul class="list-disc list-inside space-y-1 text-slate-600 pl-1">
+            <li>Click <b>Download Sample Excel Template</b> above to download <code>KHS_Existing_Students_Template.xlsx</code> (A copy is also saved in your app folder: <code>c:\Users\suman\Downloads\KHS Billing\KHS_Existing_Students_Template.xlsx</code>).</li>
+            <li>Fill in student records (Admission No, Name, Class, Day Scholar / Residential, Parent Phone).</li>
+            <li>Fill in <b>Past_Amount_Already_Paid</b> if a student has already paid fee this term/year — the system will automatically calculate their exact remaining balance due.</li>
+            <li>Upload the completed file below. Existing students with duplicate admission numbers will be safely skipped.</li>
+          </ul>
+        </div>
+
+        <!-- Upload Form -->
+        <div class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl p-8 text-center transition bg-slate-50/50">
+          <input type="file" id="excelStudentFile" accept=".xlsx" class="hidden" onchange="handleStudentFileChosen()">
+          <div class="space-y-3 cursor-pointer" onclick="document.getElementById('excelStudentFile').click()">
+            <div class="w-14 h-14 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto text-2xl">
+              <i class="fa-solid fa-file-excel"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-slate-800" id="chosenFileNameText">Click here to browse your Excel file (.xlsx)</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">Supports Microsoft Excel .xlsx format</p>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-slate-200 flex justify-center">
+            <button type="button" id="btnUploadStudentsExcel" onclick="uploadStudentExcelFile()" disabled class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md transition flex items-center space-x-2">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+              <span>Upload & Import Students</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Import Results Alert -->
+        <div id="importResultBox" class="hidden p-4 rounded-xl text-xs font-semibold"></div>
+      </div>
+    </section>
+
+    <!-- ================= SECTION 7: STAFF USERS MANAGEMENT (ADMIN) ================= -->
+    <section id="sec-staff" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-5xl mx-auto space-y-6">
+        <div class="border-b border-slate-200 pb-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900">Front Desk Staff & Billing Users</h2>
+            <p class="text-xs text-slate-500">Add up to 10 staff members by mobile number and manage Block / Unblock access</p>
+          </div>
+          <span class="text-xs font-bold bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full border border-indigo-200" id="staffCountBadge">
+            0 / 10 Users Added
+          </span>
+        </div>
+
+        <!-- Add New Staff Form -->
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+          <h3 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+            <i class="fa-solid fa-user-plus text-indigo-600"></i>
+            <span>Register New Front Desk Staff</span>
+          </h3>
+
+          <form onsubmit="handleStaffAddSubmit(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">Staff Full Name *</label>
+              <input type="text" id="newStaffName" required oninput="this.value = this.value.toUpperCase()" placeholder="ALL CAPS, E.G. SURESH KUMAR" class="w-full px-3 py-2 text-xs uppercase font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1">10-Digit Mobile Number (Login Username) *</label>
+              <input type="tel" id="newStaffMobile" required maxlength="10" minlength="10" pattern="[0-9]{10}" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10)" placeholder="e.g. 9876543210" class="w-full px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <div>
+              <button type="submit" id="btnAddStaffBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2 px-4 rounded-xl shadow-md transition flex items-center justify-center space-x-1.5">
+                <i class="fa-solid fa-plus"></i>
+                <span>Add Staff User</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Staff List Table -->
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3">Staff Member</th>
+                <th class="p-3">Login Username (Mobile #)</th>
+                <th class="p-3">Role</th>
+                <th class="p-3">Access Status</th>
+                <th class="p-3 text-center">Block / Unblock</th>
+                <th class="p-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="staffTableRows" class="divide-y divide-slate-100 text-slate-800">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION 8: ENROLLED STUDENTS (CLASS-WISE) ================= -->
+    <section id="sec-classwise" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        
+        <!-- Header & Quick Controls -->
+        <div class="border-b border-slate-200 pb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900 flex items-center space-x-2">
+              <i class="fa-solid fa-graduation-cap text-indigo-600"></i>
+              <span>Enrolled Students (Class-wise Register)</span>
+            </h2>
+            <p class="text-xs text-slate-500">View enrolled students grouped by class and section with live fee settlement status</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="exportClassWiseToExcel()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-2 rounded-xl text-xs border border-emerald-200 flex items-center space-x-1.5 transition shadow-xs">
+              <i class="fa-solid fa-file-excel text-emerald-600"></i>
+              <span>Export List to Excel</span>
+            </button>
+            <button onclick="loadClassWiseStudents()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center space-x-1">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Class Quick Cards (Pills) -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Select Class to Filter</span>
+            <span class="text-xs font-semibold text-slate-500" id="classSummaryTotalBanner">Loading classes...</span>
+          </div>
+          <div id="classWisePillsContainer" class="flex flex-wrap gap-2">
+            <!-- Populated dynamically: All, PP1, PP2, Class 1-10 -->
+          </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="grid grid-cols-1 sm:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Branch</label>
+            <select id="filterCwBranch" onchange="handleClassWiseFilterChange()" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white text-indigo-900">
+              <option value="All">All Branches (Both 1 & 2)</option>
+              <option value="Branch 1">Branch 1</option>
+              <option value="Branch 2">Branch 2</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Class Filter</label>
+            <select id="filterCwClass" onchange="handleClassWiseFilterChange()" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="All">All Classes</option>
+              <option value="PP1">PP1</option>
+              <option value="PP2">PP2</option>
+              <option value="Class 1">Class 1</option>
+              <option value="Class 2">Class 2</option>
+              <option value="Class 3">Class 3</option>
+              <option value="Class 4">Class 4</option>
+              <option value="Class 5">Class 5</option>
+              <option value="Class 6">Class 6</option>
+              <option value="Class 7">Class 7</option>
+              <option value="Class 8">Class 8</option>
+              <option value="Class 9">Class 9</option>
+              <option value="Class 10">Class 10</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Section</label>
+            <select id="filterCwSection" onchange="handleClassWiseFilterChange()" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="All">All Sections</option>
+              <option value="A">Section A</option>
+              <option value="B">Section B</option>
+              <option value="C">Section C</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Admission Status</label>
+            <select id="filterCwStatus" onchange="handleClassWiseFilterChange()" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="All">All Admissions (Active & Cancelled)</option>
+              <option value="Active" selected>Active Students Only</option>
+              <option value="Cancelled">Cancelled Admissions Only</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Search within results</label>
+            <div class="relative">
+              <input type="text" id="filterCwSearch" oninput="filterClassWiseTableLocally()" placeholder="Filter by Name, Adm No, Phone..." class="w-full pl-8 pr-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Financial & Enrollment Metrics KPI Bar -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4" id="cwMetricsGrid">
+          <div class="bg-indigo-50/70 border border-indigo-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-indigo-600">Total Enrolled</p>
+            <p class="text-xl font-black text-indigo-950 mt-1" id="cwStatTotal">0</p>
+            <p class="text-[10px] text-indigo-700/80 mt-0.5" id="cwStatActiveSub">0 Active students</p>
+          </div>
+          <div id="cwCardAgreed" class="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-slate-500">Agreed Annual Fee</p>
+            <p class="text-xl font-black text-slate-900 mt-1" id="cwStatAgreed">₹ 0</p>
+            <p class="text-[10px] text-slate-400 mt-0.5">Sum of agreed tuition & transport</p>
+          </div>
+          <div id="cwCardPaid" class="bg-emerald-50/70 border border-emerald-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-emerald-700">Total Collected</p>
+            <p class="text-xl font-black text-emerald-900 mt-1" id="cwStatPaid">₹ 0</p>
+            <p class="text-[10px] text-emerald-600 mt-0.5">Cleared via receipts</p>
+          </div>
+          <div id="cwCardBalance" class="bg-rose-50/70 border border-rose-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-rose-700">Remaining Balance</p>
+            <p class="text-xl font-black text-rose-900 mt-1" id="cwStatBalance">₹ 0</p>
+            <p class="text-[10px] text-rose-600 mt-0.5">Pending collection</p>
+          </div>
+        </div>
+
+        <!-- Enrolled Students Table -->
+        <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3 w-14 text-center">Roll</th>
+                <th class="p-3">Admission No</th>
+                <th class="p-3">Student Name</th>
+                <th class="p-3">Branch</th>
+                <th class="p-3">Class & Sec</th>
+                <th class="p-3">Type</th>
+                <th class="p-3">Parent Info</th>
+                <th class="p-3 text-right" id="thCwAgreed">Agreed Fee</th>
+                <th class="p-3 text-right" id="thCwPaid">Paid</th>
+                <th class="p-3 text-right" id="thCwBalance">Balance Due</th>
+                <th class="p-3 text-center">Status</th>
+                <th class="p-3 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="classWiseTableRows" class="divide-y divide-slate-100 text-slate-800">
+              <tr><td colspan="11" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading student roster...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    </div> <!-- Close Main Content Area -->
+  </main>
+
+  <!-- ================= LOGIN / SWITCH USER MODAL ================= -->
+  <div id="loginModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-5">
+      <div class="text-center space-y-1">
+        <div class="w-12 h-12 rounded-full border border-slate-200 p-1 mx-auto bg-white shadow-xs">
+          <img src="/static/khs_logo.png" alt="KHS Logo" class="w-full h-full object-contain rounded-full">
+        </div>
+        <h2 class="text-base font-extrabold text-slate-900">Sign in to KHS Billing</h2>
+      </div>
+
+      <!-- Login Mode Switcher Tabs -->
+      <div class="flex border-b border-slate-200">
+        <button onclick="switchLoginMode('otp')" id="btnTabLoginOtp" class="flex-1 py-2 text-xs font-extrabold text-indigo-600 border-b-2 border-indigo-600 transition">
+          <i class="fa-solid fa-user-check mr-1"></i> Enter Username/Mobile number to login
+        </button>
+        <button onclick="switchLoginMode('pwd')" id="btnTabLoginPwd" class="px-5 py-2 text-xs font-bold text-slate-500 hover:text-slate-800 transition">
+          <i class="fa-solid fa-key mr-1"></i> Admin
+        </button>
+      </div>
+
+      <!-- FORM 1: MOBILE NUMBER + AUTHENTICATOR / OTP LOGIN -->
+      <div id="loginOtpContainer" class="space-y-4">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">Enter Username / Mobile Number *</label>
+          <div class="flex space-x-2">
+            <input type="text" id="otpMobileInput" required maxlength="10" minlength="10" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10); onMobileInputChanged();" placeholder="10-digit mobile number" class="flex-1 px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            <button type="button" id="btnRequestOtp" onclick="handleContinueMobileLogin()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition shrink-0 flex items-center space-x-1">
+              <i class="fa-solid fa-arrow-right"></i>
+              <span id="btnContinueLabel">Continue</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Authenticator / OTP Input Box (Revealed after entering mobile) -->
+        <div id="otpInputSection" class="hidden space-y-3 pt-2 border-t border-slate-100">
+          <!-- Notification Pill for Authenticator vs OTP -->
+          <div id="authMethodNotice" class="p-3 rounded-xl border text-xs space-y-1">
+            <!-- Populated dynamically -->
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1" id="otpCodeLabel">Enter 6-Digit Authenticator Code *</label>
+            <input type="text" id="otpCodeInput" maxlength="6" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="000000" class="w-full px-3 py-2.5 text-base font-mono tracking-widest text-center font-black border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+
+          <button type="button" onclick="handleVerifyOtpSubmit()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md transition flex items-center justify-center space-x-2">
+            <i class="fa-solid fa-lock-open"></i>
+            <span>Verify & Sign In</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- FORM 2: ADMIN PASSWORD LOGIN (Preset Switcher) -->
+      <div id="loginPwdContainer" class="hidden space-y-4">
+        <!-- Quick Preset Buttons -->
+        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+          <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quick Fill Preset:</p>
+          <div>
+            <button onclick="setLoginPreset('admin', 'admin123')" class="w-full p-2 bg-white rounded-lg border border-slate-200 hover:border-indigo-500 text-left transition shadow-2xs flex items-center justify-between">
+              <div>
+                <p class="text-xs font-bold text-purple-700">School Admin</p>
+                <p class="text-[10px] text-slate-400">Username: admin | Password: admin123</p>
+              </div>
+              <span class="text-[10px] bg-purple-50 text-purple-700 px-2 py-1 rounded font-bold">Auto Fill</span>
+            </button>
+          </div>
+        </div>
+
+        <form onsubmit="handleLoginSubmit(event)" class="space-y-3">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Username / Mobile</label>
+            <input type="text" id="loginUsername" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Password</label>
+            <input type="password" id="loginPassword" required class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md transition">
+            Sign In with Password
+          </button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= RECEIPT SUCCESS MODAL (WHATSAPP SHARE) ================= -->
+  <div id="receiptModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-5">
+      <div class="text-center space-y-1">
+        <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto text-xl">
+          <i class="fa-solid fa-circle-check"></i>
+        </div>
+        <h3 class="text-base font-extrabold text-slate-900">Payment Successfully Recorded!</h3>
+        <p class="text-xs text-slate-500" id="mReceiptNoText">Receipt #KHS-2026-XXXX</p>
+      </div>
+
+      <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2">
+        <div class="flex justify-between">
+          <span class="text-slate-500">Amount Collected:</span>
+          <span class="font-extrabold text-emerald-700 text-sm" id="mAmountPaidText">₹ 0</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Remaining Balance:</span>
+          <span class="font-bold text-rose-600" id="mBalanceDueText">₹ 0</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Parent Mobile:</span>
+          <span class="font-bold text-slate-800" id="mParentPhoneText">--</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="space-y-2">
+        <!-- Direct Free WhatsApp Share to Parent -->
+        <a id="mWhatsappBtn" target="_blank" href="#" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
+          <i class="fa-brands fa-whatsapp text-base"></i>
+          <span>Send Receipt to Parent on WhatsApp (Free)</span>
+        </a>
+
+        <!-- View / Print Receipt -->
+        <a id="mViewReceiptBtn" target="_blank" href="#" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl shadow-md flex items-center justify-center space-x-2 transition">
+          <i class="fa-solid fa-print"></i>
+          <span>Open Printable Receipt / PDF</span>
+        </a>
+
+        <button onclick="closeReceiptModal()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold py-2 rounded-xl transition">
+          Done / Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= AUTHENTICATOR QR SETUP MODAL (ADMIN / ONBOARDING) ================= -->
+  <div id="authenticatorQrModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-center">
+      <div class="space-y-1">
+        <div class="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center mx-auto text-xl">
+          <i class="fa-solid fa-qrcode"></i>
+        </div>
+        <h3 class="text-base font-extrabold text-slate-900">Setup Authenticator (2FA)</h3>
+        <p class="text-xs text-slate-500" id="qrStaffNameText">For Staff Member</p>
+      </div>
+
+      <!-- Instructions Step-by-Step -->
+      <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-left text-xs space-y-1.5 text-slate-700">
+        <p class="font-bold text-slate-900 flex items-center space-x-1">
+          <i class="fa-solid fa-mobile-screen-button text-indigo-600"></i>
+          <span>How to scan on phone (Google or Microsoft):</span>
+        </p>
+        <ol class="list-decimal list-inside space-y-1 text-[11px] text-slate-600 pl-1">
+          <li>Open <b>Google Authenticator</b> or <b>Microsoft Authenticator</b> on staff phone.</li>
+          <li>Tap the <b>+ (Add)</b> button $\rightarrow$ Select <b>Scan a QR code</b>.</li>
+          <li>Point the phone camera at the QR code below. Done!</li>
+        </ol>
+      </div>
+
+      <!-- QR Code Image Container -->
+      <div class="p-3 bg-white border border-slate-200 rounded-2xl shadow-inner inline-block">
+        <img id="qrCodeImage" src="" alt="Authenticator QR Code" class="w-48 h-48 mx-auto object-contain">
+      </div>
+
+      <!-- Secret Key manual backup -->
+      <div class="text-[10px] text-slate-500 bg-slate-100 p-2 rounded-lg font-mono">
+        Can't scan? Manual Key: <span id="qrSecretKeyText" class="font-bold text-slate-800 select-all"></span>
+      </div>
+
+      <!-- Footer Buttons -->
+      <div class="flex space-x-2 pt-1">
+        <button onclick="closeAuthenticatorQrModal()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 rounded-xl transition">
+          I Have Scanned QR Code
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: REQUEST ADMISSION EDIT DETAILS ================= -->
+  <div id="requestEditModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4">
+      <div class="border-b border-slate-200 pb-3 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold">
+            <i class="fa-solid fa-user-pen"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900">Request Edit Admission Details</h3>
+            <p class="text-[10px] text-slate-500">Requires School Admin approval before changes apply</p>
+          </div>
+        </div>
+        <button onclick="closeRequestEditModal()" class="text-slate-400 hover:text-slate-600 text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <form onsubmit="submitRequestEditForm(event)" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Student Full Name *</label>
+            <input type="text" id="reqEditStudentName" required oninput="this.value = this.value.toUpperCase()" class="w-full px-3 py-1.5 text-xs font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Class *</label>
+            <select id="reqEditClass" class="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="PP1">PP1</option>
+              <option value="PP2">PP2</option>
+              <option value="Class 1">Class 1</option>
+              <option value="Class 2">Class 2</option>
+              <option value="Class 3">Class 3</option>
+              <option value="Class 4">Class 4</option>
+              <option value="Class 5">Class 5</option>
+              <option value="Class 6">Class 6</option>
+              <option value="Class 7">Class 7</option>
+              <option value="Class 8">Class 8</option>
+              <option value="Class 9">Class 9</option>
+              <option value="Class 10">Class 10</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Section</label>
+            <input type="text" id="reqEditSection" maxlength="2" oninput="this.value = this.value.toUpperCase()" class="w-full px-3 py-1.5 text-xs font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Category</label>
+            <select id="reqEditStudentType" class="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="Day Scholar">Day Scholar</option>
+              <option value="Residential">Residential</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Parent Full Name *</label>
+            <input type="text" id="reqEditParentName" required class="w-full px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Parent Mobile (10-Digit) *</label>
+            <input type="tel" id="reqEditParentPhone" required maxlength="10" minlength="10" pattern="[0-9]{10}" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10)" class="w-full px-3 py-1.5 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">Reason for Modification (Mandatory for Admin) *</label>
+          <textarea id="reqEditReason" required rows="2" placeholder="e.g. Typo correction in student name or class section change" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"></textarea>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button type="button" onclick="closeRequestEditModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 rounded-xl transition">
+            Cancel
+          </button>
+          <button type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2 rounded-xl shadow-md transition">
+            Submit for Admin Approval
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: REQUEST ADMISSION CANCELLATION ================= -->
+  <div id="requestCancelModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+      <div class="border-b border-slate-200 pb-3 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-sm font-bold">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900">Request Admission Cancellation</h3>
+            <p class="text-[10px] text-slate-500">Subject to School Admin approval</p>
+          </div>
+        </div>
+        <button onclick="closeRequestCancelModal()" class="text-slate-400 hover:text-slate-600 text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="bg-rose-50 p-3 rounded-xl border border-rose-200 text-xs text-rose-900 space-y-1">
+        <p class="font-bold flex items-center"><i class="fa-solid fa-shield-halved mr-1 text-rose-600"></i> Cancellation Governance Notice:</p>
+        <p class="text-[11px] leading-relaxed">
+          Admissions cannot be deleted directly by staff. Once submitted, School Admin will review past receipts and approve or reject this cancellation.
+        </p>
+      </div>
+
+      <form onsubmit="submitRequestCancelForm(event)" class="space-y-3">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">Reason for Cancellation (Mandatory) *</label>
+          <textarea id="reqCancelReason" required rows="3" placeholder="e.g. Parent relocated / transfer to another city before session start" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500"></textarea>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button type="button" onclick="closeRequestCancelModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 rounded-xl transition">
+            Keep Admission
+          </button>
+          <button type="submit" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs py-2 rounded-xl shadow-md transition">
+            Submit Cancellation Request
+          </button>
+        </div>
+      </form>
+  <!-- ================= MODAL: GOOGLE DRIVE BACKUP & CLOUD SYNC ================= -->
+  <div id="gdriveModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="border-b border-slate-200 pb-3 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-lg font-bold">
+            <i class="fa-brands fa-google-drive"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900">Google Drive Cloud Sync</h3>
+            <p class="text-[10px] text-slate-500">Automated offline-to-cloud database backup</p>
+          </div>
+        </div>
+        <button onclick="closeGDriveModal()" class="text-slate-400 hover:text-slate-600 text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Sync Status Card -->
+      <div id="gdriveStatusCard" class="p-3.5 rounded-xl border text-xs space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="font-bold flex items-center" id="gdriveStatusTitle">
+            <i class="fa-solid fa-circle-question mr-1.5"></i> Checking connection...
+          </span>
+          <span id="gdriveStatusBadge" class="text-[10px] font-black px-2 py-0.5 rounded-full uppercase">--</span>
+        </div>
+        <p class="text-[11px] text-slate-500" id="gdriveStatusDesc">Loading status...</p>
+      </div>
+
+      <!-- Direct Sync Now Button (Active if configured) -->
+      <div id="gdriveSyncNowContainer" class="hidden bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between">
+        <div>
+          <p class="text-xs font-bold text-emerald-900">Ready to Cloud Sync</p>
+          <p class="text-[10px] text-emerald-700">Push latest database snapshot to your Google Drive</p>
+        </div>
+        <button onclick="triggerGDriveSyncNow()" id="btnSyncNowDrive" class="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>Sync Now to Drive</span>
+        </button>
+      </div>
+
+      <!-- Service Account Bot Email (Copy to share Drive folder) -->
+      <div id="gdriveBotEmailSection" class="hidden bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1 text-xs">
+        <p class="font-bold text-slate-700 flex items-center justify-between">
+          <span>Service Account Bot Email:</span>
+          <button onclick="copyGDriveBotEmail()" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-bold">
+            <i class="fa-solid fa-copy mr-1"></i>Copy Email
+          </button>
+        </p>
+        <p class="font-mono text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200 break-all select-all" id="gdriveBotEmailText">--</p>
+        <p class="text-[10px] text-slate-500">
+          <b>Important</b>: In Google Drive, share your backup folder with this email as an <b>Editor</b> so it can upload files without logging in every day.
+        </p>
+      </div>
+
+      <!-- Configuration Form -->
+      <div class="space-y-3 pt-1">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">
+            1. Google Service Account Credentials JSON
+          </label>
+          <div class="flex items-center space-x-2">
+            <input type="file" id="gdriveJsonInput" accept=".json" class="hidden" onchange="uploadGDriveCredentialsFile()">
+            <button type="button" onclick="document.getElementById('gdriveJsonInput').click()" id="btnUploadCredentialsJson" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 px-3 rounded-xl border border-slate-300 transition text-left truncate">
+              <i class="fa-solid fa-file-code mr-1.5 text-indigo-600"></i>
+              <span id="gdriveJsonNameText">Upload service_account.json</span>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">
+            2. Google Drive Target Folder ID *
+          </label>
+          <input type="text" id="gdriveFolderIdInput" placeholder="e.g. 1a2B3c4D5e6F7g8H9i0J..." class="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500">
+          <p class="text-[10px] text-slate-400 mt-1">Open your backup folder in Google Drive. The Folder ID is the last part of the URL (after /folders/...).</p>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <label class="flex items-center space-x-2 cursor-pointer">
+            <input type="checkbox" id="gdriveAutoSyncCheck" checked class="w-4 h-4 text-blue-600 rounded">
+            <span class="text-xs font-bold text-slate-700">Auto-sync snapshot every evening</span>
+          </label>
+          <button onclick="saveGDriveSettings()" id="btnSaveGDriveConfig" class="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-xs transition">
+            Save Settings
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= MULTI-BRANCH CLOUD SYNC MODAL ================= -->
+  <div id="cloudSyncModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      
+      <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-lg font-bold">
+            <i class="fa-solid fa-cloud-bolt"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900">Multi-Branch Real-Time Cloud Sync</h3>
+            <p class="text-[10px] text-slate-500">Live 2-way sync across Branch 1, Branch 2 & Android App</p>
+          </div>
+        </div>
+        <button onclick="closeCloudSyncModal()" class="text-slate-400 hover:text-slate-600 text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Live Sync Status Card -->
+      <div id="cloudSyncStatusCard" class="p-3.5 rounded-xl border text-xs space-y-1">
+        <div class="flex items-center justify-between">
+          <span class="font-bold flex items-center" id="cloudSyncStatusTitle">
+            <i class="fa-solid fa-circle-question mr-1.5"></i> Checking cloud status...
+          </span>
+          <span id="cloudSyncStatusBadge" class="text-[10px] font-black px-2 py-0.5 rounded-full uppercase">--</span>
+        </div>
+        <p class="text-[11px] text-slate-500" id="cloudSyncStatusDesc">Loading status...</p>
+      </div>
+
+      <!-- Outbox Queue Counter -->
+      <div class="grid grid-cols-2 gap-3 text-xs">
+        <div class="bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
+          <span class="text-[10px] font-bold text-amber-800 uppercase">Offline Pending (Outbox)</span>
+          <p class="text-lg font-black text-amber-900" id="cloudSyncPendingCount">0</p>
+          <span class="text-[9px] text-amber-700">Will auto-upload on connect</span>
+        </div>
+        <div class="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl">
+          <span class="text-[10px] font-bold text-emerald-800 uppercase">Total Synced To Cloud</span>
+          <p class="text-lg font-black text-emerald-900" id="cloudSyncSyncedCount">0</p>
+          <span class="text-[9px] text-emerald-700">Secured in central database</span>
+        </div>
+      </div>
+
+      <!-- Configuration Inputs -->
+      <div class="space-y-3 pt-1 text-xs">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">
+            Central Cloud Database URL (Turso / LibSQL HTTP) *
+          </label>
+          <input type="text" id="cloudSyncDbUrlInput" placeholder="https://khs-billing-[org].turso.io" class="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+          <p class="text-[10px] text-slate-400 mt-0.5">Free forever central SQLite database URL.</p>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">
+            Cloud Auth Token *
+          </label>
+          <input type="password" id="cloudSyncTokenInput" placeholder="eyJhbGciOiJFZERTQ..." class="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">This Device's Branch</label>
+            <select id="cloudSyncBranchSelect" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-white text-indigo-900">
+              <option value="Branch 1">Branch 1</option>
+              <option value="Branch 2">Branch 2</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Sync Service</label>
+            <div class="pt-2">
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" id="cloudSyncEnabledCheck" checked class="w-4 h-4 text-purple-600 rounded">
+                <span class="font-bold text-slate-700">Enable Live Cloud Sync</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-200">
+          <button type="button" onclick="testCloudSyncConnection()" id="btnTestCloudSync" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-2 rounded-xl transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-plug"></i>
+            <span>Test Connection</span>
+          </button>
+
+          <div class="flex items-center space-x-2">
+            <button type="button" onclick="triggerManualCloudSync()" id="btnSyncNowCloud" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl transition flex items-center space-x-1.5">
+              <i class="fa-solid fa-rotate"></i>
+              <span>Sync Now</span>
+            </button>
+            <button type="button" onclick="saveCloudSyncSettings()" id="btnSaveCloudSync" class="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-4 py-2 rounded-xl transition">
+              Save Settings
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
