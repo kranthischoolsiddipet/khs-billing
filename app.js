@@ -31,7 +31,7 @@ function handleAutoLogoutDueToInactivity() {
 }
 
 function handleManualLogout() {
-  if (confirm("Are you sure you want to lock the screen and sign out?")) {
+  if (confirm("Are you sure you want to log out?")) {
     currentUser = null;
     localStorage.removeItem('khs_user');
     if (inactivityTimer) clearTimeout(inactivityTimer);
