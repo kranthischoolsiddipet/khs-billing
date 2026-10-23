@@ -13,8 +13,15 @@ import base64
 import json
 import pyotp
 import qrcode
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+
+# Indian Standard Time (IST = UTC+5:30) helper for consistent timestamps across local and cloud hosting (Render)
+IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now() -> datetime:
+    """Returns current datetime in Indian Standard Time (UTC+5:30) regardless of host server timezone"""
+    return datetime.now(timezone.utc).astimezone(IST_TZ)
 from fastapi import FastAPI, HTTPException, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -210,7 +217,7 @@ class UserSessionLogRequest(BaseModel):
 def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0):
     """Logs user login, logout, new admission, and fee payment events for audit trails"""
     try:
-        now = datetime.now()
+        now = get_ist_now()
         ts = now.strftime("%Y-%m-%d %H:%M:%S")
         date_str = now.strftime("%Y-%m-%d")
         conn = get_db()
@@ -844,6 +851,7 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
     final_agreed_fee = gross_fee - discount_amount
 
     # Insert student
+    now_ist = get_ist_now()
     branch_val = req.branch.strip() if req.branch else "Branch 1"
     cursor = conn.cursor()
     cursor.execute("""
@@ -858,7 +866,7 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
         req.academic_year, req.student_type, 1 if req.has_transport else 0, transport_fee, req.bus_route,
         req.parent_name.strip(), req.parent_phone.strip(), req.parent_email, req.address,
         gross_fee, discount_amount, final_agreed_fee, discount_status,
-        datetime.now().strftime("%Y-%m-%d"), operator_user
+        now_ist.strftime("%Y-%m-%d"), operator_user
     ))
     student_id = cursor.lastrowid
 
@@ -874,9 +882,9 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
     receipt_data = None
     if req.initial_payment_amount > 0:
         b_code = "B2" if ("2" in branch_val) else "B1"
-        receipt_no = f"KHS{b_code}-{datetime.now().strftime('%Y')}-{random.randint(10000, 99999)}"
+        receipt_no = f"KHS{b_code}-{now_ist.strftime('%Y')}-{random.randint(10000, 99999)}"
         token = secrets.token_urlsafe(16)
-        expires = (datetime.now() + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
+        expires = (now_ist + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
         balance = final_agreed_fee - req.initial_payment_amount
 
         cursor.execute("""
@@ -889,7 +897,7 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
         """, (
             receipt_no, student_id, req.admission_no, branch_val, final_agreed_fee, req.initial_payment_amount, balance,
             req.initial_payment_mode, req.initial_payment_ref, operator_user,
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), token, expires, "Admission Fee Deposit"
+            now_ist.strftime("%Y-%m-%d %H:%M:%S"), token, expires, "Admission Fee Deposit"
         ))
 
         receipt_data = {
@@ -927,7 +935,7 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
             "discount_amount": discount_amount,
             "final_agreed_fee": final_agreed_fee,
             "discount_status": discount_status,
-            "admission_date": datetime.now().strftime("%Y-%m-%d"),
+            "admission_date": now_ist.strftime("%Y-%m-%d"),
             "created_by": operator_user,
             "status": "Active"
         }
@@ -947,9 +955,9 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
                 "payment_mode": req.initial_payment_mode,
                 "transaction_ref": req.initial_payment_ref,
                 "collected_by": operator_user,
-                "payment_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "payment_date": now_ist.strftime("%Y-%m-%d %H:%M:%S"),
                 "receipt_token": receipt_data['receipt_token'],
-                "token_expires_at": (datetime.now() + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S"),
+                "token_expires_at": (now_ist + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S"),
                 "notes": "Admission Fee Deposit"
             }
             cloud_sync.queue_transaction_locally('payment', receipt_data['receipt_no'], 'INSERT', payment_payload, branch_val)
@@ -1388,9 +1396,10 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
 
     student_branch = student['branch'] if 'branch' in student.keys() and student['branch'] else "Branch 1"
     b_code = "B2" if ("2" in str(student_branch)) else "B1"
-    receipt_no = f"KHS{b_code}-{datetime.now().strftime('%Y')}-{random.randint(10000, 99999)}"
+    now_ist = get_ist_now()
+    receipt_no = f"KHS{b_code}-{now_ist.strftime('%Y')}-{random.randint(10000, 99999)}"
     token = secrets.token_urlsafe(16)
-    expires = (datetime.now() + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
+    expires = (now_ist + timedelta(hours=48)).strftime("%Y-%m-%d %H:%M:%S")
 
     label = req.installment_label if req.installment_label else f"Installment #{installment_no}"
 
@@ -1405,7 +1414,7 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
         receipt_no, req.student_id, student['admission_no'], student_branch, installment_no, label,
         total_agreed, previously_paid, req.amount_paid, new_balance,
         req.payment_mode, req.transaction_ref, cashier_user,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), token, expires, req.notes
+        now_ist.strftime("%Y-%m-%d %H:%M:%S"), token, expires, req.notes
     ))
     payment_id = cursor.lastrowid
     conn.commit()
@@ -1440,7 +1449,7 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
             "payment_mode": req.payment_mode,
             "transaction_ref": req.transaction_ref,
             "collected_by": cashier_user,
-            "payment_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "payment_date": now_ist.strftime("%Y-%m-%d %H:%M:%S"),
             "receipt_token": token,
             "token_expires_at": expires,
             "notes": req.notes
