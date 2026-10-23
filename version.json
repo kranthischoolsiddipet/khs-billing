@@ -1,8 +1,9 @@
 {
-  "version": "1.0.7",
-  "released_at": "2026-10-23",
-  "notes": "Fixed mobile variable name in handleContinueMobileLogin",
+  "version": "1.0.8",
+  "released_at": "2026-10-24",
+  "notes": "Hardened admin password, removed all visible auto-fill presets",
   "files": [
+    "index.html",
     "app.js"
   ]
 }

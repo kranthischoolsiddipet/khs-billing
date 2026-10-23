@@ -98,8 +98,7 @@ function openLoginModal() {
 }
 
 function setLoginPreset(username, password) {
-  document.getElementById('loginUsername').value = username;
-  document.getElementById('loginPassword').value = password;
+  // Deprecated - presets removed for security
 }
 
 async function handleLoginSubmit(e) {
