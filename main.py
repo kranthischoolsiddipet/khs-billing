@@ -1506,22 +1506,22 @@ def get_receipt_data(token: str):
     # Resolve Cashier's First Name instead of raw phone number or system username
     collected_by_raw = payment['collected_by'] or 'Billing Desk'
     cashier_user = conn.execute("""
-        SELECT full_name FROM users WHERE username = ? OR phone = ?
+        SELECT full_name, role FROM users WHERE username = ? OR phone = ?
     """, (str(collected_by_raw), str(collected_by_raw))).fetchone()
     conn.close()
 
-    if cashier_user and cashier_user['full_name']:
-        full_n = cashier_user['full_name'].strip()
-        # Take first word / first name (e.g. "NAVEEN" from "NAVEEN KUMAR")
-        first_name = full_n.split()[0].title()
-        payment_dict['collected_by'] = first_name
-    elif str(collected_by_raw).lower() in ['admin', 'superadmin']:
+    if str(collected_by_raw).lower() in ['admin', 'superadmin'] or (cashier_user and cashier_user['role'] in ['T1', 'T2']):
         payment_dict['collected_by'] = 'Admin'
+    elif cashier_user and cashier_user['full_name']:
+        full_n = cashier_user['full_name'].strip()
+        first_name = full_n.split()[0].title()
+        payment_dict['collected_by'] = 'Admin' if first_name.lower() in ['principal', 'admin', 'superadmin'] else first_name
     elif str(collected_by_raw).lower() == 'frontdesk':
         payment_dict['collected_by'] = 'Front Desk'
     else:
         # If string has spaces or words, take first word title-cased
-        payment_dict['collected_by'] = str(collected_by_raw).split()[0].title()
+        w = str(collected_by_raw).split()[0].title()
+        payment_dict['collected_by'] = 'Admin' if w.lower() in ['principal', 'admin', 'superadmin'] else w
 
     exp_dt = datetime.strptime(payment['token_expires_at'], "%Y-%m-%d %H:%M:%S")
     is_expired = datetime.now() > exp_dt

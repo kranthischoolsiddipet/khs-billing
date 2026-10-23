@@ -723,6 +723,8 @@ function onDiscountInputChanged() {
   const alertText = document.getElementById('discountBlockAlertText');
   const submitBtn = document.getElementById('btnSubmitAdmission');
 
+  const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
+
   if (discountInput <= 0) {
     currentDiscountApprovalState.status = 'None';
     currentDiscountApprovalState.requestId = null;
@@ -739,7 +741,26 @@ function onDiscountInputChanged() {
     return;
   }
 
-  // If discount is entered, always show Request Approval button and block submit until approved
+  // When logged in as Admin or Super Admin, grant instant approval without requiring approval queue navigation!
+  if (isAdmin) {
+    currentDiscountApprovalState.status = 'Approved';
+    currentDiscountApprovalState.approvedAmount = discountInput;
+    clearInterval(currentDiscountApprovalState.pollTimer);
+
+    badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300";
+    badge.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Admin Concession Approved: ₹ ${Number(discountInput).toLocaleString('en-IN')}`;
+    
+    reqBtn.classList.add('hidden');
+    modBtn.classList.add('hidden');
+    
+    alertBox.className = "bg-emerald-50 text-emerald-800 text-xs p-2.5 rounded-xl border border-emerald-200 flex items-center space-x-2";
+    alertBox.innerHTML = `<i class="fa-solid fa-check-double text-emerald-600"></i> <span>Direct Admin Discount applied (₹ ${Number(discountInput).toLocaleString('en-IN')}). You can complete admission immediately.</span>`;
+    alertBox.classList.remove('hidden');
+    submitBtn.disabled = false;
+    return;
+  }
+
+  // If T3 Cashier enters discount, require Admin approval
   currentDiscountApprovalState.status = 'NeedsRequest';
   badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300";
   badge.innerText = "Approval Required from Admin";
@@ -937,9 +958,17 @@ function updateAgreedFeePreview() {
 async function handleAdmissionSubmit(e) {
   e.preventDefault();
 
-  // Safety verification: if discount was requested, ensure it is Approved
+  const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
   const discountAmount = parseFloat(document.getElementById('admDiscountAmount').value) || 0;
-  if (discountAmount > 0 && currentDiscountApprovalState.status !== 'Approved') {
+
+  // If Admin or Super Admin, auto-approve discount directly
+  if (isAdmin && discountAmount > 0) {
+    currentDiscountApprovalState.status = 'Approved';
+    currentDiscountApprovalState.approvedAmount = discountAmount;
+  }
+
+  // Safety verification: if T3 requested discount, ensure it is Approved
+  if (!isAdmin && discountAmount > 0 && currentDiscountApprovalState.status !== 'Approved') {
     alert("Discount has not been approved by Admin yet! Please request approval and wait for Admin approval before submitting.");
     return;
   }
@@ -1765,7 +1794,7 @@ async function printEodDaySheet() {
         </div>
         <div class="sign-box">
           <div class="sign-line"></div>
-          <div class="sign-label">Principal / Management Signature</div>
+          <div class="sign-label">Admin / Management Signature</div>
           <div style="font-size: 10px; color: #64748b; margin-top: 17px;">(Verified & Received)</div>
         </div>
       </div>

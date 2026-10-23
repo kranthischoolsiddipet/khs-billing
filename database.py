@@ -240,9 +240,13 @@ def init_db():
         VALUES (?, ?, ?, ?, ?);
         """, [
             ('superadmin', 'admin123', 'Super Administrator', 'T1', '9876543210'),
-            ('admin', 'admin123', 'Principal / School Admin', 'T2', '9876543211'),
+            ('admin', 'admin123', 'Admin', 'T2', '9876543211'),
             ('frontdesk', 'desk123', 'KHS Billing Desk', 'T3', '9876543212')
         ])
+
+    # Ensure admin user full_name is cleanly updated to 'Admin' (removing 'Principal')
+    cursor.execute("UPDATE users SET full_name = 'Admin' WHERE username = 'admin' AND full_name LIKE '%Principal%'")
+    conn.commit()
 
     # 7. Seed Default Fee Master if empty
     cursor.execute("SELECT COUNT(*) FROM fee_structures;")
