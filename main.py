@@ -196,22 +196,27 @@ class StaffUserDelete(BaseModel):
 
 @app.post("/api/auth/request-otp")
 def request_otp(data: RequestOtpRequest):
-    mobile = data.mobile.strip().replace(" ", "").replace("-", "")
+    raw_input = data.mobile.strip().replace(" ", "").replace("-", "")
+    is_sa = raw_input.upper().startswith("SA")
+    mobile = raw_input[2:] if is_sa else raw_input
     if len(mobile) == 12 and mobile.startswith("91"):
         mobile = mobile[2:]
 
     conn = get_db()
     cursor = conn.cursor()
 
-    # Check if user exists with this mobile number (as username or phone)
-    user = cursor.execute("""
-        SELECT * FROM users 
-        WHERE (username = ? OR phone = ?)
-    """, (mobile, mobile)).fetchone()
+    # Differentiate between SA Super Admin and T3 Cashier
+    if is_sa:
+        user = cursor.execute("SELECT * FROM users WHERE username = ? OR (phone = ? AND role = 'T1')", (f"SA{mobile}", mobile)).fetchone()
+    else:
+        user = cursor.execute("SELECT * FROM users WHERE username = ? OR (phone = ? AND role = 'T3')", (mobile, mobile)).fetchone()
+        if not user:
+            user = cursor.execute("SELECT * FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
 
     if not user:
         conn.close()
-        raise HTTPException(status_code=403, detail="This mobile number is not registered. Please contact School Admin to add your mobile.")
+        role_hint = "Super Admin" if is_sa else "Staff"
+        raise HTTPException(status_code=403, detail=f"No {role_hint} account registered for {raw_input}. Please contact School Admin.")
 
     if not user['is_active']:
         conn.close()
@@ -222,13 +227,13 @@ def request_otp(data: RequestOtpRequest):
     expires_at = (datetime.now() + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
 
     # Invalidate previous unused OTPs for this number
-    cursor.execute("UPDATE otps SET is_used = 1 WHERE mobile = ? AND is_used = 0", (mobile,))
+    cursor.execute("UPDATE otps SET is_used = 1 WHERE mobile IN (?, ?) AND is_used = 0", (mobile, raw_input))
 
     # Insert new OTP
     cursor.execute("""
         INSERT INTO otps (mobile, otp_code, expires_at, is_used)
         VALUES (?, ?, ?, 0)
-    """, (mobile, otp_code, expires_at))
+    """, (raw_input, otp_code, expires_at))
 
     conn.commit()
     conn.close()
@@ -237,30 +242,34 @@ def request_otp(data: RequestOtpRequest):
 
     return {
         "status": "success",
-        "mobile": mobile,
+        "mobile": raw_input,
         "otp_code": otp_code, # Sent back so user sees it instantly / can send via WhatsApp
-        "message": f"OTP generated successfully for {mobile}.",
+        "message": f"OTP generated successfully for {raw_input}.",
         "whatsapp_url": f"https://wa.me/91{mobile}?text={otp_msg}"
     }
 
 @app.post("/api/auth/check-method")
 def check_auth_method(data: RequestOtpRequest):
     """Check if the user has Google/Microsoft Authenticator configured or uses fallback SMS/OTP"""
-    mobile = data.mobile.strip().replace(" ", "").replace("-", "")
+    raw_input = data.mobile.strip().replace(" ", "").replace("-", "")
+    is_sa = raw_input.upper().startswith("SA")
+    mobile = raw_input[2:] if is_sa else raw_input
     if len(mobile) == 12 and mobile.startswith("91"):
         mobile = mobile[2:]
 
     conn = get_db()
     cursor = conn.cursor()
-    user = cursor.execute("""
-        SELECT id, username, full_name, role, phone, is_active, totp_secret 
-        FROM users 
-        WHERE (username = ? OR phone = ?)
-    """, (mobile, mobile)).fetchone()
+    if is_sa:
+        user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR (phone = ? AND role = 'T1')", (f"SA{mobile}", mobile)).fetchone()
+    else:
+        user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR (phone = ? AND role = 'T3')", (mobile, mobile)).fetchone()
+        if not user:
+            user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
     conn.close()
 
     if not user:
-        raise HTTPException(status_code=403, detail="This mobile number is not registered. Please contact School Admin to add your mobile.")
+        role_hint = "Super Admin" if is_sa else "Staff"
+        raise HTTPException(status_code=403, detail=f"No {role_hint} account registered for {raw_input}.")
     if not user['is_active']:
         raise HTTPException(status_code=403, detail="Your access has been BLOCKED by Admin. Please contact Management.")
 
@@ -268,14 +277,17 @@ def check_auth_method(data: RequestOtpRequest):
 
     return {
         "status": "success",
-        "mobile": mobile,
+        "mobile": raw_input,
         "full_name": user['full_name'],
+        "role": user['role'],
         "has_authenticator": has_totp
     }
 
 @app.post("/api/auth/verify-otp")
 def verify_otp(data: VerifyOtpRequest):
-    mobile = data.mobile.strip().replace(" ", "").replace("-", "")
+    raw_input = data.mobile.strip().replace(" ", "").replace("-", "")
+    is_sa = raw_input.upper().startswith("SA")
+    mobile = raw_input[2:] if is_sa else raw_input
     if len(mobile) == 12 and mobile.startswith("91"):
         mobile = mobile[2:]
 
@@ -284,10 +296,12 @@ def verify_otp(data: VerifyOtpRequest):
     conn = get_db()
     cursor = conn.cursor()
 
-    user = cursor.execute("""
-        SELECT * FROM users 
-        WHERE (username = ? OR phone = ?) AND is_active = 1
-    """, (mobile, mobile)).fetchone()
+    if is_sa:
+        user = cursor.execute("SELECT * FROM users WHERE (username = ? OR (phone = ? AND role = 'T1')) AND is_active = 1", (f"SA{mobile}", mobile)).fetchone()
+    else:
+        user = cursor.execute("SELECT * FROM users WHERE (username = ? OR (phone = ? AND role = 'T3')) AND is_active = 1", (mobile, mobile)).fetchone()
+        if not user:
+            user = cursor.execute("SELECT * FROM users WHERE (username = ? OR phone = ?) AND is_active = 1", (mobile, mobile)).fetchone()
 
     if not user:
         conn.close()
@@ -296,7 +310,6 @@ def verify_otp(data: VerifyOtpRequest):
     # 1. First check if user has TOTP (Google/Microsoft Authenticator) enabled
     if user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
         totp = pyotp.TOTP(user['totp_secret'].strip())
-        # verify with a valid window of 1 interval before and after (±30s tolerance for slight clock drift)
         if totp.verify(otp_input, valid_window=1):
             conn.close()
             return {
@@ -308,9 +321,9 @@ def verify_otp(data: VerifyOtpRequest):
     # 2. Check traditional OTP table (Fallback or setup mode)
     otp_row = cursor.execute("""
         SELECT * FROM otps 
-        WHERE mobile = ? AND otp_code = ? AND is_used = 0
+        WHERE mobile IN (?, ?) AND otp_code = ? AND is_used = 0
         ORDER BY id DESC LIMIT 1
-    """, (mobile, otp_input)).fetchone()
+    """, (mobile, raw_input, otp_input)).fetchone()
 
     if not otp_row:
         conn.close()

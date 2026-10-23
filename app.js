@@ -1844,10 +1844,12 @@ function onMobileInputChanged() {
 
 async function handleContinueMobileLogin() {
   const mobileInput = document.getElementById('otpMobileInput');
-  const mobile = mobileInput.value.trim();
+  const rawInput = mobileInput.value.trim();
+  const isSa = rawInput.toUpperCase().startsWith("SA");
+  const cleanDigits = isSa ? rawInput.slice(2) : rawInput;
 
-  if (mobile.length !== 10) {
-    alert("Please enter a valid 10-digit mobile number registered by your School Admin.");
+  if (cleanDigits.length !== 10 || isNaN(cleanDigits)) {
+    alert("Please enter a valid 10-digit mobile number (or SA<Mobile> for Super Admin).");
     return;
   }
 
@@ -1913,9 +1915,11 @@ async function handleContinueMobileLogin() {
 
 async function handleRequestOtp(isFallback = false) {
   const mobileInput = document.getElementById('otpMobileInput');
-  const mobile = mobileInput.value.trim();
+  const rawInput = mobileInput.value.trim();
+  const isSa = rawInput.toUpperCase().startsWith("SA");
+  const cleanDigits = isSa ? rawInput.slice(2) : rawInput;
 
-  if (mobile.length !== 10) {
+  if (cleanDigits.length !== 10 || isNaN(cleanDigits)) {
     alert("Please enter a valid 10-digit mobile number.");
     return;
   }
@@ -1924,7 +1928,7 @@ async function handleRequestOtp(isFallback = false) {
     const res = await fetch('/api/auth/request-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile })
+      body: JSON.stringify({ mobile: rawInput })
     });
     const data = await res.json();
 
@@ -1958,10 +1962,12 @@ async function handleRequestOtp(isFallback = false) {
 }
 
 async function handleVerifyOtpSubmit() {
-  const mobile = document.getElementById('otpMobileInput').value.trim();
+  const rawInput = document.getElementById('otpMobileInput').value.trim();
+  const isSa = rawInput.toUpperCase().startsWith("SA");
+  const cleanDigits = isSa ? rawInput.slice(2) : rawInput;
   const otpCode = document.getElementById('otpCodeInput').value.trim();
 
-  if (!mobile || mobile.length !== 10) {
+  if (cleanDigits.length !== 10 || isNaN(cleanDigits)) {
     alert("Please enter a valid 10-digit mobile number.");
     return;
   }
@@ -1974,7 +1980,7 @@ async function handleVerifyOtpSubmit() {
     const res = await fetch('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile, otp_code: otpCode })
+      body: JSON.stringify({ mobile: rawInput, otp_code: otpCode })
     });
 
     const data = await res.json();

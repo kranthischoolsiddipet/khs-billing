@@ -1154,12 +1154,13 @@
         <div>
           <label class="block text-[11px] font-bold text-slate-700 mb-1">Enter Username / Mobile Number *</label>
           <div class="flex space-x-2">
-            <input type="text" id="otpMobileInput" required maxlength="10" minlength="10" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10); onMobileInputChanged();" placeholder="10-digit mobile number" class="flex-1 px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            <input type="text" id="otpMobileInput" required maxlength="12" oninput="this.value = this.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 12); onMobileInputChanged();" placeholder="e.g. 6303761588 or SA6303761588" class="flex-1 px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
             <button type="button" id="btnRequestOtp" onclick="handleContinueMobileLogin()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition shrink-0 flex items-center space-x-1">
               <i class="fa-solid fa-arrow-right"></i>
               <span id="btnContinueLabel">Continue</span>
             </button>
           </div>
+          <p class="text-[10px] text-slate-400 mt-1">Staff: Enter 10-digit mobile. Super Admin: Prefix with <b>SA</b> (e.g. <code>SA6303761588</code>)</p>
         </div>
 
         <!-- Authenticator / OTP Input Box (Revealed after entering mobile) -->

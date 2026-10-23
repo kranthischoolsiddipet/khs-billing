@@ -1,11 +1,11 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.4",
   "released_at": "2026-10-23",
-  "notes": "Added 15-minute inactivity auto-logout and manual lock button",
+  "notes": "Enabled dual Super Admin (SA6303761588) and Cashier (6303761588) OTP/Authenticator login",
   "files": [
-    "index.html",
-    "app.js",
     "main.py",
+    "app.js",
+    "index.html",
     "cloud_sync.py",
     "gdrive_sync.py"
   ]
