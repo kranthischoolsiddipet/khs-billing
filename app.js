@@ -1885,7 +1885,7 @@ async function handleContinueMobileLogin() {
     const res = await fetch('/api/auth/check-method', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile })
+      body: JSON.stringify({ mobile: rawInput })
     });
     const data = await res.json();
     btn.disabled = false;
