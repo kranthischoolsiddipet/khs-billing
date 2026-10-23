@@ -215,8 +215,7 @@ def request_otp(data: RequestOtpRequest):
 
     if not user:
         conn.close()
-        role_hint = "Super Admin" if is_sa else "Staff"
-        raise HTTPException(status_code=403, detail=f"No {role_hint} account registered for {raw_input}. Please contact School Admin.")
+        raise HTTPException(status_code=403, detail=f"No account registered for {raw_input}. Please contact School Admin.")
 
     if not user['is_active']:
         conn.close()
@@ -268,8 +267,7 @@ def check_auth_method(data: RequestOtpRequest):
     conn.close()
 
     if not user:
-        role_hint = "Super Admin" if is_sa else "Staff"
-        raise HTTPException(status_code=403, detail=f"No {role_hint} account registered for {raw_input}.")
+        raise HTTPException(status_code=403, detail=f"No account registered for {raw_input}.")
     if not user['is_active']:
         raise HTTPException(status_code=403, detail="Your access has been BLOCKED by Admin. Please contact Management.")
 

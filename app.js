@@ -1873,7 +1873,7 @@ async function handleContinueMobileLogin() {
   const cleanDigits = isSa ? rawInput.slice(2) : rawInput;
 
   if (cleanDigits.length !== 10 || isNaN(cleanDigits)) {
-    alert("Please enter a valid 10-digit mobile number (or SA<Mobile> for Super Admin).");
+    alert("Please enter a valid 10-digit mobile number.");
     return;
   }
 
