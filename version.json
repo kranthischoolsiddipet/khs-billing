@@ -1,13 +1,10 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "released_at": "2026-10-23",
+  "notes": "Added 6-month retention cleanup and automatic Turso cloud DB hydration",
   "files": [
     "main.py",
-    "database.py",
     "cloud_sync.py",
-    "gdrive_sync.py",
-    "index.html",
-    "app.js",
-    "receipt.html"
+    "gdrive_sync.py"
   ]
 }

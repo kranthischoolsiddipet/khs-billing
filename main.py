@@ -60,6 +60,15 @@ def _background_cloud_sync_worker():
 
 @app.on_event("startup")
 def start_sync_worker():
+    # Hydrate local DB with latest data from Turso cloud (users, students, payments, fees)
+    try:
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            print("[STARTUP] Hydrating database from Turso Cloud...")
+            cloud_sync.pull_cloud_data_into_local_db()
+    except Exception as e:
+        print(f"[STARTUP HYDRATION ERROR]: {e}")
+
     t = threading.Thread(target=_background_cloud_sync_worker, daemon=True)
     t.start()
 

@@ -2,7 +2,7 @@ import os
 import json
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from datetime import datetime
+from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
@@ -92,6 +92,17 @@ def upload_database_to_drive(db_path: str = None):
             fields='id, name, webViewLink',
             supportsAllDrives=True
         ).execute()
+
+        # Automatic 6-Month Retention Cleanup Policy (Purge backups older than 180 days)
+        try:
+            six_months_ago = (datetime.now() - timedelta(days=180)).isoformat() + "Z"
+            old_files_query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder' and createdTime < '{six_months_ago}' and trashed = false"
+            old_files_resp = service.files().list(q=old_files_query, fields='files(id, name)').execute()
+            for old_f in old_files_resp.get('files', []):
+                service.files().delete(fileId=old_f['id']).execute()
+                print(f"[GDRIVE RETENTION] Purged backup older than 6 months: {old_f['name']}")
+        except Exception as cleane:
+            print(f"[GDRIVE RETENTION NOTICE]: {cleane}")
 
         return {
             "status": "success",

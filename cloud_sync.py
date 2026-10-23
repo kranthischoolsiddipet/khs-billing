@@ -8,6 +8,19 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloud_sy
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "khs_billing.db")
 
 def get_sync_config():
+    # If environment variables are set (like on Render), use them automatically!
+    env_db_url = os.environ.get("TURSO_DB_URL", "").strip()
+    env_token = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+    if env_db_url and env_token:
+        return {
+            "enabled": True,
+            "provider": "turso_http",
+            "db_url": env_db_url,
+            "auth_token": env_token,
+            "branch": "All",
+            "auto_sync_interval_seconds": 20
+        }
+
     if not os.path.exists(CONFIG_FILE):
         return {
             "enabled": False,
@@ -29,6 +42,80 @@ def save_sync_config(cfg: dict):
     return True
 
 def normalize_turso_url(url: str) -> str:
+    """Ensures url uses https:// and endpoints /v2/pipeline for Turso HTTP API"""
+    u = url.strip()
+    if u.startswith("libsql://"):
+        u = "https://" + u[len("libsql://"):]
+    if not u.startswith("http://") and not u.startswith("https://"):
+        u = "https://" + u
+    u = u.rstrip("/")
+    if not u.endswith("/v2/pipeline"):
+        u = u + "/v2/pipeline"
+    return u
+
+def pull_cloud_data_into_local_db():
+    """
+    Pulls users, fee_structures, students, and payments from Turso Cloud Database into local SQLite.
+    Ensures that when a cloud instance starts up (like on Render), it immediately hydrates with all records!
+    """
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False, "Cloud sync not enabled"
+
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+
+    try:
+        # 1. Pull Users
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret FROM users;"}], cfg['db_url'], cfg['auth_token'])
+        if ok and res.get('results'):
+            rows = res['results'][0]['response']['result']['rows']
+            for r in rows:
+                vals = [c.get('value') for c in r]
+                cur.execute("""
+                    INSERT OR REPLACE INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, vals)
+
+        # 2. Pull Fee Structures
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee, residential_fee, default_transport_fee, total_base_fee FROM fee_structures;"}], cfg['db_url'], cfg['auth_token'])
+        if ok and res.get('results'):
+            rows = res['results'][0]['response']['result']['rows']
+            for r in rows:
+                vals = [c.get('value') for c in r]
+                cur.execute("""
+                    INSERT OR REPLACE INTO fee_structures (class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee, residential_fee, default_transport_fee, total_base_fee)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, vals)
+
+        # 3. Pull Students
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status FROM students;"}], cfg['db_url'], cfg['auth_token'])
+        if ok and res.get('results'):
+            rows = res['results'][0]['response']['result']['rows']
+            for r in rows:
+                vals = [c.get('value') for c in r]
+                cur.execute("""
+                    INSERT OR REPLACE INTO students (admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, vals)
+
+        # 4. Pull Payments
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT receipt_no, admission_no, branch, installment_no, installment_label, total_agreed_fee, previously_paid, amount_paid, balance_due, payment_mode, transaction_ref, collected_by, payment_date, receipt_token, token_expires_at, notes FROM payments;"}], cfg['db_url'], cfg['auth_token'])
+        if ok and res.get('results'):
+            rows = res['results'][0]['response']['result']['rows']
+            for r in rows:
+                vals = [c.get('value') for c in r]
+                cur.execute("""
+                    INSERT OR REPLACE INTO payments (receipt_no, student_id, admission_no, branch, installment_no, installment_label, total_agreed_fee, previously_paid, amount_paid, balance_due, payment_mode, transaction_ref, collected_by, payment_date, receipt_token, token_expires_at, notes)
+                    VALUES (?, (SELECT id FROM students WHERE admission_no = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [vals[0], vals[1], vals[1]] + vals[2:])
+
+        conn.commit()
+        conn.close()
+        return True, "Cloud pull complete"
+    except Exception as e:
+        conn.close()
+        return False, str(e)
     """Ensures url uses https:// and endpoints /v2/pipeline for Turso HTTP API"""
     u = url.strip()
     if u.startswith("libsql://"):
