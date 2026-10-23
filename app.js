@@ -4,6 +4,44 @@ let currentStudent = null;
 let searchDebounceTimer = null;
 let pendingDiscountsList = [];
 
+// Session ID Management for Audit & Activity Trail
+function getOrCreateSessionId() {
+  let sId = sessionStorage.getItem('khs_session_id');
+  if (!sId) {
+    sId = 'sess_' + Date.now() + '_' + Math.floor(1000 + Math.random() * 9000);
+    sessionStorage.setItem('khs_session_id', sId);
+  }
+  return sId;
+}
+
+// Send session end event to backend
+function sendSessionEndEvent(actionType, reason) {
+  const sId = sessionStorage.getItem('khs_session_id');
+  if (!currentUser || !sId) return;
+
+  const payload = {
+    session_id: sId,
+    username: currentUser.username || currentUser.phone || 'unknown',
+    action_type: actionType, // 'LOGOUT' or 'AUTO_TIMEOUT'
+    action_details: reason || (actionType === 'LOGOUT' ? 'Manual user logout' : '15-minute inactivity auto logout')
+  };
+
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/auth/session-log', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+    } else {
+      fetch('/api/auth/session-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error("Error logging session end:", e);
+  }
+}
+
 // ================= INACTIVITY AUTO-LOGOUT (15 MINUTES) =================
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 Minutes
 let inactivityTimer = null;
@@ -21,6 +59,11 @@ function resetInactivityTimer() {
 function handleAutoLogoutDueToInactivity() {
   if (!currentUser) return;
   console.log("[SECURITY] Inactivity timeout reached (15m). Auto logging out user.");
+  
+  // Record session timeout in backend logs
+  sendSessionEndEvent('AUTO_TIMEOUT', '15-minute inactivity session lock');
+  sessionStorage.removeItem('khs_session_id');
+
   currentUser = null;
   localStorage.removeItem('khs_user');
   
@@ -37,6 +80,10 @@ function handleAutoLogoutDueToInactivity() {
 
 function handleManualLogout() {
   if (confirm("Are you sure you want to log out?")) {
+    // Record manual logout in backend logs
+    sendSessionEndEvent('LOGOUT', 'User clicked manual Logout');
+    sessionStorage.removeItem('khs_session_id');
+
     currentUser = null;
     localStorage.removeItem('khs_user');
     if (inactivityTimer) clearTimeout(inactivityTimer);
@@ -80,13 +127,14 @@ document.addEventListener('DOMContentLoaded', () => {
     openLoginModal();
   }
 
-  // Pre-fill today's local date for EOD report (ensures IST/local date matching)
+  // Pre-fill today's local date for EOD report and Audit Logs
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   const todayStr = `${year}-${month}-${day}`;
-  document.getElementById('eodDatePicker').value = todayStr;
+  if (document.getElementById('eodDatePicker')) document.getElementById('eodDatePicker').value = todayStr;
+  if (document.getElementById('auditDatePicker')) document.getElementById('auditDatePicker').value = todayStr;
 
   // Initial data loads
   loadPendingDiscounts();
@@ -105,12 +153,13 @@ async function handleLoginSubmit(e) {
   e.preventDefault();
   const u = document.getElementById('loginUsername').value;
   const p = document.getElementById('loginPassword').value;
+  const sId = getOrCreateSessionId();
 
   try {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: u, password: p })
+      body: JSON.stringify({ username: u, password: p, session_id: sId })
     });
 
     const data = await res.json();
@@ -120,6 +169,7 @@ async function handleLoginSubmit(e) {
     }
 
     currentUser = data.user;
+    if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
@@ -175,9 +225,8 @@ function applyUserRoleUI() {
   // Import tab is now available to both T3 and Admin!
   const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
   
-  // Strictly Admin-only tabs: discounts (Approvals Queue) and staff user management.
-  // reports (EOD Reports & Summary) is now accessible to all roles including T3!
-  const adminOnlyTabIds = ['discounts', 'staff'];
+  // Strictly Admin-only tabs: discounts (Approvals Queue), staff user management, and logs (Audit & Session logs)
+  const adminOnlyTabIds = ['discounts', 'staff', 'logs'];
   adminOnlyTabIds.forEach(tabId => {
     const tabBtn = document.getElementById(`tab-${tabId}`);
     if (tabBtn) {
@@ -249,7 +298,7 @@ function applyUserRoleUI() {
 
 function switchTab(tabId) {
   const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
-  const adminOnlyTabIds = ['discounts', 'staff'];
+  const adminOnlyTabIds = ['discounts', 'staff', 'logs'];
 
   if (!isAdmin && adminOnlyTabIds.includes(tabId)) {
     alert("Access Denied: Only School Admins have permission to access this section.");
@@ -268,7 +317,7 @@ function switchTab(tabId) {
   }
 
   // Tab buttons
-  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff'].forEach(id => {
+  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff', 'logs'].forEach(id => {
     const btn = document.getElementById(`tab-${id}`);
     const sec = document.getElementById(`sec-${id}`);
     if (btn) {
@@ -301,6 +350,7 @@ function switchTab(tabId) {
   if (tabId === 'feemaster') loadFeeMaster();
   if (tabId === 'reports') loadEodReport();
   if (tabId === 'staff') loadStaffUsers();
+  if (tabId === 'logs') loadAuditLogs();
 }
 
 // ================= SEARCH & INSTALLMENT COLLECTION =================
@@ -548,7 +598,8 @@ async function submitInstallmentPayment() {
         amount_paid: amount,
         payment_mode: mode,
         transaction_ref: ref,
-        installment_label: label
+        installment_label: label,
+        session_id: getOrCreateSessionId()
       })
     });
 
@@ -901,7 +952,8 @@ async function handleAdmissionSubmit(e) {
     discount_reason: document.getElementById('admDiscountReason').value.trim(),
     initial_payment_amount: parseFloat(document.getElementById('admInitialPay').value) || 0,
     initial_payment_mode: document.getElementById('admPayMode').value,
-    initial_payment_ref: document.getElementById('admPayRef').value.trim()
+    initial_payment_ref: document.getElementById('admPayRef').value.trim(),
+    session_id: getOrCreateSessionId()
   };
 
   try {
@@ -1999,11 +2051,13 @@ async function handleVerifyOtpSubmit() {
     return;
   }
 
+  const sId = getOrCreateSessionId();
+
   try {
     const res = await fetch('/api/auth/verify-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile: rawInput, otp_code: otpCode })
+      body: JSON.stringify({ mobile: rawInput, otp_code: otpCode, session_id: sId })
     });
 
     const data = await res.json();
@@ -2013,6 +2067,7 @@ async function handleVerifyOtpSubmit() {
     }
 
     currentUser = data.user;
+    if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
@@ -2270,6 +2325,227 @@ async function toggleStaffBlock(userId, unblock) {
     loadStaffUsers();
   } catch (err) {
     alert("Server error toggling staff access: " + err);
+  }
+}
+
+// ================= AUDIT & SESSION ACTIVITY LOGS (ADMIN & SUPER ADMIN) =================
+
+async function loadAuditLogs() {
+  if (!currentUser) return;
+  const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
+  if (!isAdmin) return;
+
+  const dateInput = document.getElementById('auditDatePicker');
+  let targetDate = dateInput ? dateInput.value : '';
+  if (!targetDate) {
+    const now = new Date();
+    targetDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (dateInput) dateInput.value = targetDate;
+  }
+
+  const container = document.getElementById('auditSessionsContainer');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="text-center py-12 text-slate-400 text-xs">
+      <i class="fa-solid fa-spinner fa-spin text-lg mb-2 text-indigo-600"></i><br>
+      Fetching audit trail & session logs for ${targetDate}...
+    </div>
+  `;
+
+  // Update subtitle based on role
+  const subtitle = document.getElementById('auditSubtitle');
+  if (subtitle) {
+    if (currentUser.role === 'T1') {
+      subtitle.innerText = "Super Admin View: Full transparency into sessions & transactions for Cashiers (T3) and Admin (T2)";
+    } else {
+      subtitle.innerText = "Admin View: Review login/logout times and transactions completed by Front Desk Cashiers (T3)";
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/audit-logs?target_date=${targetDate}&operator_user=${encodeURIComponent(currentUser.username)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      container.innerHTML = `
+        <div class="p-6 text-center text-rose-600 bg-rose-50 rounded-xl border border-rose-200 text-xs font-bold">
+          <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> ${data.detail || "Unable to load logs"}
+        </div>
+      `;
+      return;
+    }
+
+    // Compute summary KPI counts
+    let totalAdmissions = 0;
+    let totalPayments = 0;
+    let totalAmount = 0;
+
+    data.raw_logs.forEach(l => {
+      if (l.action_type === 'NEW_ADMISSION') {
+        totalAdmissions++;
+        totalAmount += (l.amount || 0);
+      } else if (l.action_type === 'FEE_PAYMENT') {
+        totalPayments++;
+        totalAmount += (l.amount || 0);
+      }
+    });
+
+    document.getElementById('auditTotalSessions').innerText = data.sessions.length;
+    document.getElementById('auditTotalAdmissions').innerText = totalAdmissions;
+    document.getElementById('auditTotalPayments').innerText = totalPayments;
+    document.getElementById('auditTotalAmount').innerText = '₹ ' + Number(totalAmount).toLocaleString('en-IN');
+
+    const notice = document.getElementById('auditTimestampNotice');
+    if (notice) notice.innerText = `Showing ${data.total_logs} activities across ${data.sessions.length} sessions for ${targetDate}`;
+
+    if (!data.sessions || data.sessions.length === 0) {
+      container.innerHTML = `
+        <div class="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-12 text-center">
+          <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400 mb-3">
+            <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+          </div>
+          <h4 class="text-sm font-bold text-slate-700">No Activity Logs Found</h4>
+          <p class="text-xs text-slate-400 mt-1">There are no staff login or transaction records registered on ${targetDate}.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Render session cards
+    let html = '';
+    data.sessions.forEach(sess => {
+      const roleLabel = (sess.role === 'T1') ? 'Super Admin' : (sess.role === 'T2' ? 'Admin' : 'Front Desk / T3');
+      const roleBadgeClass = (sess.role === 'T1')
+        ? 'bg-indigo-100 text-indigo-900 border-indigo-200'
+        : (sess.role === 'T2' ? 'bg-purple-100 text-purple-900 border-purple-200' : 'bg-emerald-100 text-emerald-900 border-emerald-200');
+
+      // Format Login / Logout times
+      const loginDisplay = sess.login_time 
+        ? new Date(sess.login_time.replace(' ', 'T')).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+        : 'In Progress / Prior';
+      
+      let logoutDisplay = '';
+      if (sess.logout_time) {
+        const timeStr = new Date(sess.logout_time.replace(' ', 'T')).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        const isTimeout = sess.logout_type === 'AUTO_TIMEOUT';
+        logoutDisplay = `<span class="inline-flex items-center text-xs font-bold ${isTimeout ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-slate-700 bg-slate-100 border-slate-200'} px-2 py-0.5 rounded border">
+          <i class="fa-solid ${isTimeout ? 'fa-hourglass-end mr-1 text-amber-600' : 'fa-right-from-bracket mr-1 text-slate-500'}"></i>
+          ${timeStr} (${isTimeout ? 'Auto-Timeout' : 'Logged Out'})
+        </span>`;
+      } else {
+        logoutDisplay = `<span class="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+          Session Active
+        </span>`;
+      }
+
+      // Filter transaction actions inside this session (exclude LOGIN/LOGOUT for transaction list)
+      const txnActions = sess.actions.filter(a => a.action_type !== 'LOGIN' && a.action_type !== 'LOGOUT' && a.action_type !== 'AUTO_TIMEOUT');
+
+      let txnRowsHtml = '';
+      if (txnActions.length === 0) {
+        txnRowsHtml = `
+          <div class="py-3 px-4 text-xs text-slate-400 italic bg-white rounded-lg border border-slate-100 text-center">
+            No financial transactions (Admissions or Fee Payments) recorded during this session.
+          </div>
+        `;
+      } else {
+        txnRowsHtml = txnActions.map(txn => {
+          const isAdmission = (txn.action_type === 'NEW_ADMISSION');
+          const typeIcon = isAdmission ? 'fa-user-plus text-indigo-600 bg-indigo-50' : 'fa-receipt text-emerald-600 bg-emerald-50';
+          const typeBadge = isAdmission
+            ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded uppercase">New Admission</span>'
+            : '<span class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded uppercase">Fee Payment</span>';
+
+          const timeFormatted = new Date(txn.timestamp.replace(' ', 'T')).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+          return `
+            <div class="flex items-center justify-between p-3 bg-white hover:bg-slate-50/80 rounded-xl border border-slate-200/80 transition text-xs">
+              <div class="flex items-center space-x-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center ${typeIcon} shrink-0">
+                  <i class="fa-solid ${isAdmission ? 'fa-user-plus' : 'fa-receipt'} text-xs"></i>
+                </div>
+                <div>
+                  <div class="flex items-center space-x-2">
+                    ${typeBadge}
+                    <span class="font-bold text-slate-800">${txn.action_details}</span>
+                  </div>
+                  <div class="text-[11px] text-slate-400 mt-0.5 flex items-center space-x-3">
+                    <span><i class="fa-regular fa-clock mr-1"></i>${timeFormatted}</span>
+                    ${txn.entity_id ? `<span><i class="fa-solid fa-hashtag mr-0.5"></i>Ref: ${txn.entity_id}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="text-right shrink-0">
+                ${txn.amount > 0 ? `<div class="font-black text-slate-900 text-sm">₹ ${Number(txn.amount).toLocaleString('en-IN')}</div>` : '<div class="text-slate-400 font-bold">—</div>'}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      html += `
+        <div class="bg-slate-50/90 border border-slate-200 rounded-2xl p-5 space-y-4 hover:border-slate-300 transition shadow-xs">
+          <!-- Session Header -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center shadow-xs">
+                ${sess.full_name ? sess.full_name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h4 class="font-extrabold text-slate-900 text-sm">${sess.full_name || sess.username}</h4>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full border ${roleBadgeClass}">${roleLabel}</span>
+                  <span class="text-[11px] text-slate-400">(${sess.username})</span>
+                </div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  <i class="fa-solid fa-code-branch text-slate-400 mr-1"></i>${sess.branch || 'Branch 1'}
+                </div>
+              </div>
+            </div>
+
+            <!-- Login / Logout times -->
+            <div class="flex items-center space-x-4 text-xs">
+              <div class="bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-left">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Login Time</div>
+                <div class="font-extrabold text-slate-800 flex items-center mt-0.5">
+                  <i class="fa-solid fa-right-to-bracket mr-1.5 text-emerald-600"></i> ${loginDisplay}
+                </div>
+              </div>
+
+              <div class="bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-left">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Logout Status</div>
+                <div class="mt-0.5">
+                  ${logoutDisplay}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Transactions Subheading -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+                <i class="fa-solid fa-list-check mr-1 text-indigo-500"></i> Actions & Transactions (${txnActions.length})
+              </span>
+            </div>
+            <div class="space-y-2">
+              ${txnRowsHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+
+  } catch (err) {
+    container.innerHTML = `
+      <div class="p-6 text-center text-rose-600 bg-rose-50 rounded-xl border border-rose-200 text-xs font-bold">
+        <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Network error fetching audit logs: ${err}
+      </div>
+    `;
   }
 }
 

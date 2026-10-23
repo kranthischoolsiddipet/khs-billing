@@ -1,9 +1,11 @@
 {
-  "version": "1.0.8",
+  "version": "1.0.9",
   "released_at": "2026-10-24",
-  "notes": "Hardened admin password, removed all visible auto-fill presets",
+  "notes": "Added Staff Session & Transaction Audit Logs with date picker and role hierarchy",
   "files": [
+    "main.py",
     "index.html",
-    "app.js"
+    "app.js",
+    "database.py"
   ]
 }

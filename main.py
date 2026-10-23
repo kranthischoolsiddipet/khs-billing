@@ -97,6 +97,7 @@ def dict_from_row(row):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    session_id: Optional[str] = ""
 
 class FeeStructureUpdate(BaseModel):
     class_name: str
@@ -130,6 +131,7 @@ class StudentAdmissionRequest(BaseModel):
     initial_payment_amount: float = 0.0
     initial_payment_mode: str = "Cash"
     initial_payment_ref: Optional[str] = ""
+    session_id: Optional[str] = ""
 
 class PreAdmissionDiscountRequest(BaseModel):
     admission_no: str
@@ -168,6 +170,7 @@ class PaymentCreateRequest(BaseModel):
     transaction_ref: Optional[str] = ""
     installment_label: Optional[str] = ""
     notes: Optional[str] = ""
+    session_id: Optional[str] = ""
 
 class RequestOtpRequest(BaseModel):
     mobile: str
@@ -175,6 +178,7 @@ class RequestOtpRequest(BaseModel):
 class VerifyOtpRequest(BaseModel):
     mobile: str
     otp_code: str
+    session_id: Optional[str] = ""
 
 class StaffUserCreate(BaseModel):
     full_name: str
@@ -191,6 +195,48 @@ class StaffUserUpdate(BaseModel):
 
 class StaffUserDelete(BaseModel):
     user_id: int
+
+class UserSessionLogRequest(BaseModel):
+    session_id: str
+    username: str
+    action_type: str # 'LOGOUT' or 'AUTO_TIMEOUT'
+    action_details: Optional[str] = ""
+
+def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0):
+    """Logs user login, logout, new admission, and fee payment events for audit trails"""
+    try:
+        now = datetime.now()
+        ts = now.strftime("%Y-%m-%d %H:%M:%S")
+        date_str = now.strftime("%Y-%m-%d")
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (session_id, username, full_name, role, branch or "Branch 1", action_type, action_details, entity_id, amount, ts, date_str))
+        conn.commit()
+        conn.close()
+
+        # Queue log to Turso cloud
+        try:
+            log_payload = {
+                "session_id": session_id,
+                "username": username,
+                "full_name": full_name,
+                "role": role,
+                "branch": branch or "Branch 1",
+                "action_type": action_type,
+                "action_details": action_details,
+                "entity_id": entity_id,
+                "amount": amount,
+                "timestamp": ts,
+                "date_only": date_str
+            }
+            cloud_sync.queue_transaction_locally('activity_log', f"{session_id}_{ts}", 'INSERT', log_payload, branch or "Branch 1")
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[AUDIT LOG ERROR]: {e}")
 
 # ----------------- AUTHENTICATION & OTP APIS -----------------
 
@@ -310,9 +356,21 @@ def verify_otp(data: VerifyOtpRequest):
         totp = pyotp.TOTP(user['totp_secret'].strip())
         if totp.verify(otp_input, valid_window=1):
             conn.close()
+            # Record audit login event
+            sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
+            record_activity_log(
+                session_id=sess_id,
+                username=user['username'],
+                full_name=user['full_name'],
+                role=user['role'],
+                branch="Branch 1",
+                action_type="LOGIN",
+                action_details="Staff logged in via Authenticator OTP"
+            )
             return {
                 "status": "success",
                 "method": "authenticator",
+                "session_id": sess_id,
                 "user": dict_from_row(user)
             }
 
@@ -337,9 +395,22 @@ def verify_otp(data: VerifyOtpRequest):
     conn.commit()
     conn.close()
 
+    # Record audit login event
+    sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
+    record_activity_log(
+        session_id=sess_id,
+        username=user['username'],
+        full_name=user['full_name'],
+        role=user['role'],
+        branch="Branch 1",
+        action_type="LOGIN",
+        action_details="Staff logged in via SMS/Fallback OTP"
+    )
+
     return {
         "status": "success",
         "method": "otp",
+        "session_id": sess_id,
         "user": dict_from_row(user)
     }
 
@@ -356,9 +427,134 @@ def login(creds: LoginRequest):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials or account blocked.")
 
+    sess_id = (creds.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
+    record_activity_log(
+        session_id=sess_id,
+        username=user['username'],
+        full_name=user['full_name'],
+        role=user['role'],
+        branch="Branch 1",
+        action_type="LOGIN",
+        action_details="User logged in via Password"
+    )
+
     return {
         "status": "success",
+        "session_id": sess_id,
         "user": dict_from_row(user)
+    }
+
+@app.post("/api/auth/session-log")
+def log_session_event(req: UserSessionLogRequest):
+    """Records client-triggered session events like LOGOUT or AUTO_TIMEOUT"""
+    conn = get_db()
+    user = conn.execute("SELECT id, username, full_name, role FROM users WHERE username = ?", (req.username.strip(),)).fetchone()
+    conn.close()
+
+    full_name = user['full_name'] if user else req.username
+    role = user['role'] if user else "T3"
+
+    record_activity_log(
+        session_id=req.session_id.strip(),
+        username=req.username.strip(),
+        full_name=full_name,
+        role=role,
+        branch="Branch 1",
+        action_type=req.action_type.strip(),
+        action_details=req.action_details.strip() or f"User ended session ({req.action_type})"
+    )
+
+    return {"status": "success"}
+
+@app.get("/api/audit-logs")
+def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...)):
+    """
+    Returns session & activity audit logs for target_date.
+    Role hierarchy rules:
+    - Super Admin (T1): Can view logs of both T3 (Cashiers) and T2 (Admins), and own logs.
+    - Admin (T2): Can view logs of T3 (Cashiers) only.
+    - Cashier (T3): Denied (403 Forbidden).
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify operator role
+    op = cursor.execute("SELECT id, username, role FROM users WHERE username = ?", (operator_user.strip(),)).fetchone()
+    if not op:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Unauthorized operator.")
+
+    op_role = op['role']
+    if op_role not in ['T1', 'T2']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Audit log access is restricted to Administrators only.")
+
+    # Target date formatted as YYYY-MM-DD
+    clean_date = target_date.strip()
+
+    if op_role == 'T1':
+        # Super Admin sees all logs (T1, T2, T3)
+        rows = cursor.execute("""
+            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only
+            FROM user_activity_logs
+            WHERE date_only = ?
+            ORDER BY timestamp DESC
+        """, (clean_date,)).fetchall()
+    else:
+        # T2 Admin sees T3 Cashiers only
+        rows = cursor.execute("""
+            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only
+            FROM user_activity_logs
+            WHERE date_only = ? AND role = 'T3'
+            ORDER BY timestamp DESC
+        """, (clean_date,)).fetchall()
+
+    conn.close()
+
+    logs = [dict_from_row(r) for r in rows]
+
+    # Group into sessions for convenient timeline display
+    sessions_map = {}
+    for log in logs:
+        s_id = log['session_id'] or f"unknown_{log['username']}"
+        if s_id not in sessions_map:
+            sessions_map[s_id] = {
+                "session_id": s_id,
+                "username": log['username'],
+                "full_name": log['full_name'],
+                "role": log['role'],
+                "branch": log['branch'],
+                "login_time": None,
+                "logout_time": None,
+                "logout_type": None,
+                "total_actions": 0,
+                "actions": []
+            }
+        
+        entry = sessions_map[s_id]
+        if log['action_type'] == 'LOGIN':
+            if not entry['login_time'] or log['timestamp'] < entry['login_time']:
+                entry['login_time'] = log['timestamp']
+        elif log['action_type'] in ['LOGOUT', 'AUTO_TIMEOUT']:
+            entry['logout_time'] = log['timestamp']
+            entry['logout_type'] = log['action_type']
+        else:
+            entry['total_actions'] += 1
+
+        entry['actions'].append(log)
+
+    # Sort actions inside each session chronologically
+    session_list = list(sessions_map.values())
+    for s in session_list:
+        s['actions'].sort(key=lambda x: x['timestamp'])
+
+    return {
+        "status": "success",
+        "target_date": clean_date,
+        "operator_role": op_role,
+        "total_logs": len(logs),
+        "sessions": session_list,
+        "raw_logs": logs
     }
 
 # ----------------- AUTHENTICATOR (TOTP) SETUP APIS -----------------
@@ -759,6 +955,23 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
             cloud_sync.push_local_outbox_to_cloud()
     except Exception as e:
         print(f"[CLOUD SYNC HOOK NOTICE]: {e}")
+
+    # Record audit log for New Admission
+    try:
+        sess_id = (req.session_id or f"sess_{operator_user}").strip()
+        record_activity_log(
+            session_id=sess_id,
+            username=operator_user,
+            full_name=operator_user,
+            role=operator_role,
+            branch=branch_val,
+            action_type="NEW_ADMISSION",
+            action_details=f"Admitted student {req.student_name.strip()} ({req.class_name}-{req.section})",
+            entity_id=req.admission_no.strip(),
+            amount=req.initial_payment_amount
+        )
+    except Exception as e:
+        print(f"[AUDIT LOG ERROR ADMISSION]: {e}")
 
     return {
         "status": "success",
@@ -1235,6 +1448,23 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
             cloud_sync.push_local_outbox_to_cloud()
     except Exception as e:
         print(f"[CLOUD SYNC PAYMENT HOOK NOTICE]: {e}")
+
+    # Record audit log for Fee Payment
+    try:
+        sess_id = (req.session_id or f"sess_{cashier_user}").strip()
+        record_activity_log(
+            session_id=sess_id,
+            username=cashier_user,
+            full_name=cashier_user,
+            role="T3", # Default or staff cashier
+            branch=student_branch,
+            action_type="FEE_PAYMENT",
+            action_details=f"Collected Rs. {req.amount_paid:,.0f} ({label}) for {student['student_name']} ({student['admission_no']}) via {req.payment_mode}",
+            entity_id=receipt_no,
+            amount=req.amount_paid
+        )
+    except Exception as e:
+        print(f"[AUDIT LOG ERROR PAYMENT]: {e}")
 
     return {
         "status": "success",

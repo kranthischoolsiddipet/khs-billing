@@ -157,6 +157,12 @@
           <i class="fa-solid fa-user-gear w-4 text-center text-indigo-600"></i>
           <span>Staff & Cashiers</span>
         </button>
+
+        <!-- 10. Audit & Activity Logs (Admin & Super Admin) -->
+        <button onclick="switchTab('logs')" id="tab-logs" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-clock-rotate-left w-4 text-center text-indigo-600"></i>
+          <span>Staff Session Logs</span>
+        </button>
       </div>
     </aside>
 
@@ -1121,6 +1127,79 @@
               <tr><td colspan="11" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading student roster...</td></tr>
             </tbody>
           </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION 9: STAFF SESSION & ACTIVITY AUDIT LOGS ================= -->
+    <section id="sec-logs" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header & Date Controls -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                <i class="fa-solid fa-clock-rotate-left text-lg"></i>
+              </span>
+              <div>
+                <h2 class="text-base font-extrabold text-slate-900">Staff Session & Transaction Audit Logs</h2>
+                <p class="text-xs text-slate-500" id="auditSubtitle">Review login/logout times and transactions completed by front desk staff per session</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Date Filter Picker -->
+          <div class="flex items-center space-x-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
+            <span class="text-xs font-bold text-slate-600 flex items-center">
+              <i class="fa-regular fa-calendar mr-1.5 text-indigo-600"></i> Date:
+            </span>
+            <input type="date" id="auditDatePicker" class="bg-white border border-slate-300 text-xs font-bold rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="loadAuditLogs()">
+            <button onclick="loadAuditLogs()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition flex items-center">
+              <i class="fa-solid fa-rotate mr-1.5"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Summary KPI Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Staff Sessions</div>
+            <div class="text-2xl font-black text-slate-800 mt-1" id="auditTotalSessions">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Active or completed</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">New Admissions Logged</div>
+            <div class="text-2xl font-black text-indigo-600 mt-1" id="auditTotalAdmissions">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Enrolled on chosen date</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Fee Collections Logged</div>
+            <div class="text-2xl font-black text-emerald-600 mt-1" id="auditTotalPayments">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Receipts issued</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Amount Collected</div>
+            <div class="text-2xl font-black text-slate-900 mt-1" id="auditTotalAmount">Rs. 0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Verified across sessions</div>
+          </div>
+        </div>
+
+        <!-- Session List & Action Timelines -->
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-extrabold uppercase text-slate-500 tracking-wider">Session Timeline & Transaction History</h3>
+            <span class="text-xs text-slate-400" id="auditTimestampNotice"></span>
+          </div>
+
+          <!-- Container where session cards will be rendered dynamically -->
+          <div id="auditSessionsContainer" class="space-y-4">
+            <div class="text-center py-12 text-slate-400 text-xs">
+              <i class="fa-solid fa-spinner fa-spin text-lg mb-2"></i><br>
+              Loading session logs...
+            </div>
+          </div>
         </div>
 
       </div>
