@@ -30,16 +30,21 @@ app = FastAPI(title="Kranthi High School - Billing & Receipt Management System")
 init_db()
 
 def _background_cloud_sync_worker():
-    """Background daemon thread to auto-push pending sync_queue records and run scheduled 4:30 PM Google Drive backup"""
+    """Background daemon thread to auto-push pending sync_queue records, pull latest cloud data, and run scheduled 4:30 PM Google Drive backup"""
     last_gdrive_sync_day = ""
+    sync_cycle_count = 0
     while True:
         try:
             # 1. Real-time Turso Cloud Sync (every 20s)
             cfg = cloud_sync.get_sync_config()
             if cfg.get("enabled") and cfg.get("db_url") and cfg.get("auth_token"):
+                # Always push local outbox first
                 cloud_sync.push_local_outbox_to_cloud()
-        except Exception:
-            pass
+
+                # Bi-directional sync: pull updates from cloud every 20 seconds
+                cloud_sync.pull_cloud_data_into_local_db()
+        except Exception as e:
+            print(f"[BACKGROUND CLOUD SYNC ERROR]: {e}")
 
         try:
             # 2. Automated Google Drive Daily Backup at 4:30 PM (16:30)
@@ -2285,8 +2290,13 @@ def test_cloud_sync_connection(operator_user: str = Query("admin")):
 
 @app.post("/api/cloud-sync/sync-now")
 def trigger_cloud_sync_now(operator_user: str = Query("admin")):
-    res = cloud_sync.push_local_outbox_to_cloud()
-    return res
+    push_res = cloud_sync.push_local_outbox_to_cloud()
+    pull_ok, pull_msg = cloud_sync.pull_cloud_data_into_local_db()
+    return {
+        "status": "success",
+        "push": push_res,
+        "pull": {"success": pull_ok, "message": pull_msg}
+    }
 
 
 # ----------------- FRONTEND ROUTES -----------------

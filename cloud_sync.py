@@ -110,6 +110,25 @@ def pull_cloud_data_into_local_db():
                     VALUES (?, (SELECT id FROM students WHERE admission_no = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, [vals[0], vals[1], vals[1]] + vals[2:])
 
+        # 5. Pull User Activity Logs
+        try:
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only FROM user_activity_logs;"}], cfg['db_url'], cfg['auth_token'])
+            if ok and res.get('results'):
+                rows = res['results'][0]['response']['result']['rows']
+                for r in rows:
+                    vals = [c.get('value') for c in r]
+                    # Avoid duplicate activity logs
+                    cur.execute("""
+                        INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only)
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM user_activity_logs 
+                            WHERE session_id = ? AND timestamp = ? AND action_type = ?
+                        )
+                    """, vals + [vals[0], vals[9], vals[5]])
+        except Exception as e_act:
+            print(f"[PULL ACTIVITY LOGS NOTICE]: {e_act}")
+
         conn.commit()
         conn.close()
         return True, "Cloud pull complete"

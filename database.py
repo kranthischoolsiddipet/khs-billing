@@ -211,6 +211,27 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(sync_status);")
 
+    # 5c. User Session & Audit Activity Logs Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        role TEXT NOT NULL,          -- 'T1', 'T2', 'T3'
+        branch TEXT DEFAULT 'Branch 1',
+        action_type TEXT NOT NULL,   -- 'LOGIN', 'LOGOUT', 'NEW_ADMISSION', 'FEE_PAYMENT', 'AUTO_TIMEOUT'
+        action_details TEXT,         -- e.g. 'Receipt #KHSB1-2026-97130 for Rs. 12,000'
+        entity_id TEXT,              -- receipt_no or admission_no
+        amount REAL DEFAULT 0.0,
+        timestamp TEXT NOT NULL,     -- 'YYYY-MM-DD HH:MM:SS'
+        date_only TEXT NOT NULL      -- 'YYYY-MM-DD' for high-speed date filtering
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_date ON user_activity_logs(date_only);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_user ON user_activity_logs(username);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_sess ON user_activity_logs(session_id);")
+
     # 6. Seed Default Users if not present
     cursor.execute("SELECT COUNT(*) FROM users;")
     if cursor.fetchone()[0] == 0:
