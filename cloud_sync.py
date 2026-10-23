@@ -88,16 +88,29 @@ def pull_cloud_data_into_local_db():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, vals)
 
-        # 3. Pull Students
+        # 3. Pull Students (Preserve existing student id by using UPDATE or INSERT)
         ok, res = execute_remote_turso_queries([{"sql": "SELECT admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status FROM students;"}], cfg['db_url'], cfg['auth_token'])
         if ok and res.get('results'):
             rows = res['results'][0]['response']['result']['rows']
             for r in rows:
                 vals = [c.get('value') for c in r]
-                cur.execute("""
-                    INSERT OR REPLACE INTO students (admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, vals)
+                adm_no = vals[0]
+                existing_s = cur.execute("SELECT id FROM students WHERE admission_no = ?", (adm_no,)).fetchone()
+                if existing_s:
+                    cur.execute("""
+                        UPDATE students SET
+                            roll_no = ?, student_name = ?, branch = ?, gender = ?, class_name = ?, section = ?,
+                            academic_year = ?, student_type = ?, has_transport = ?, transport_fee = ?, bus_route = ?,
+                            parent_name = ?, parent_phone = ?, parent_email = ?, address = ?, standard_fee = ?,
+                            discount_amount = ?, final_agreed_fee = ?, discount_status = ?, admission_date = ?,
+                            created_by = ?, status = ?
+                        WHERE id = ?
+                    """, vals[1:] + [existing_s[0]])
+                else:
+                    cur.execute("""
+                        INSERT INTO students (admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, vals)
 
         # 4. Pull Payments
         ok, res = execute_remote_turso_queries([{"sql": "SELECT receipt_no, admission_no, branch, installment_no, installment_label, total_agreed_fee, previously_paid, amount_paid, balance_due, payment_mode, transaction_ref, collected_by, payment_date, receipt_token, token_expires_at, notes FROM payments;"}], cfg['db_url'], cfg['auth_token'])
@@ -273,6 +286,22 @@ def init_remote_schema_if_needed(db_url: str, auth_token: str):
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 actioned_at TEXT
             );
+        """},
+        {"sql": """
+            CREATE TABLE IF NOT EXISTS user_activity_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                branch TEXT DEFAULT 'Branch 1',
+                action_type TEXT NOT NULL,
+                action_details TEXT,
+                entity_id TEXT,
+                amount REAL DEFAULT 0.0,
+                timestamp TEXT NOT NULL,
+                date_only TEXT NOT NULL
+            );
         """}
     ]
     return execute_remote_turso_queries(tables_sql, db_url, auth_token)
@@ -365,6 +394,23 @@ def push_local_outbox_to_cloud():
                     data.get('transaction_ref', ''), data.get('collected_by', 'frontdesk'),
                     data.get('payment_date'), data.get('receipt_token'),
                     data.get('token_expires_at'), data.get('notes', '')
+                ]
+            })
+
+        elif etype == 'activity_log' and op == 'INSERT':
+            queries.append({
+                "sql": """
+                    INSERT INTO user_activity_logs (
+                        session_id, username, full_name, role, branch,
+                        action_type, action_details, entity_id, amount, timestamp, date_only
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                "args": [
+                    data.get('session_id', ''), data.get('username', ''), data.get('full_name', ''),
+                    data.get('role', 'T3'), data.get('branch', 'Branch 1'),
+                    data.get('action_type', ''), data.get('action_details', ''),
+                    data.get('entity_id', ''), float(data.get('amount', 0.0)),
+                    data.get('timestamp', ''), data.get('date_only', '')
                 ]
             })
 

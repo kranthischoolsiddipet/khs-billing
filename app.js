@@ -407,7 +407,27 @@ let studentPollTimer = null;
 async function selectStudent(studentId, isBackgroundPoll = false) {
   try {
     const res = await fetch(`/api/students/${studentId}/statement`);
+    if (!res.ok) {
+      if (isBackgroundPoll) {
+        // Stop polling if student is no longer found
+        clearInterval(studentPollTimer);
+        return;
+      }
+      const errData = await res.json().catch(() => ({}));
+      alert(errData.detail || 'Unable to load student statement.');
+      return;
+    }
+
     const data = await res.json();
+    if (!data || !data.student) {
+      if (isBackgroundPoll) {
+        clearInterval(studentPollTimer);
+        return;
+      }
+      alert('Student record not found or statement unavailable.');
+      return;
+    }
+
     currentStudent = data.student;
 
     if (!isBackgroundPoll) {
