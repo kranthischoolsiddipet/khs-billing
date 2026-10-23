@@ -1,8 +1,10 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "released_at": "2026-10-23",
-  "notes": "Added 6-month retention cleanup and automatic Turso cloud DB hydration",
+  "notes": "Added 15-minute inactivity auto-logout and manual lock button",
   "files": [
+    "index.html",
+    "app.js",
     "main.py",
     "cloud_sync.py",
     "gdrive_sync.py"

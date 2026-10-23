@@ -4,6 +4,47 @@ let currentStudent = null;
 let searchDebounceTimer = null;
 let pendingDiscountsList = [];
 
+// ================= INACTIVITY AUTO-LOGOUT (15 MINUTES) =================
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 Minutes
+let inactivityTimer = null;
+
+function resetInactivityTimer() {
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+  // Only track inactivity if a user is currently logged in
+  if (currentUser) {
+    inactivityTimer = setTimeout(() => {
+      handleAutoLogoutDueToInactivity();
+    }, INACTIVITY_TIMEOUT_MS);
+  }
+}
+
+function handleAutoLogoutDueToInactivity() {
+  if (!currentUser) return;
+  console.log("[SECURITY] Inactivity timeout reached (15m). Auto logging out user.");
+  currentUser = null;
+  localStorage.removeItem('khs_user');
+  
+  // Reset UI and show login dialog
+  document.getElementById('userNameDisplay').innerText = "Session Timed Out";
+  openLoginModal();
+  alert("Session Locked: You have been logged out due to 15 minutes of inactivity for security.");
+}
+
+function handleManualLogout() {
+  if (confirm("Are you sure you want to lock the screen and sign out?")) {
+    currentUser = null;
+    localStorage.removeItem('khs_user');
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    document.getElementById('userNameDisplay').innerText = "Logged Out";
+    openLoginModal();
+  }
+}
+
+// Attach activity listeners (mouse movement, clicks, keypress, touch)
+['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'input'].forEach(evt => {
+  window.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
 // ================= INITIALIZATION & AUTH =================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -13,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentUser = JSON.parse(savedUser);
     applyUserRoleUI();
     document.getElementById('loginModal').classList.add('hidden');
+    resetInactivityTimer();
   } else {
     // Open login modal by default
     openLoginModal();
@@ -62,6 +104,7 @@ async function handleLoginSubmit(e) {
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
     applyUserRoleUI();
+    resetInactivityTimer();
 
     // Show welcome screen with big school logo on initial login
     switchTab('welcome');
@@ -1944,6 +1987,7 @@ async function handleVerifyOtpSubmit() {
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     document.getElementById('loginModal').classList.add('hidden');
     applyUserRoleUI();
+    resetInactivityTimer();
 
     // Show welcome screen with big school logo on initial login
     switchTab('welcome');
