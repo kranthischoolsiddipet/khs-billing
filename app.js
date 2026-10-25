@@ -2806,6 +2806,17 @@ function renderIpLogsTable(logs) {
     const isMobile = (row.device_browser || '').includes('Android') || (row.device_browser || '').includes('iPhone') || (row.device_browser || '').includes('iPad');
     const deviceIcon = isMobile ? 'fa-mobile-screen text-indigo-500' : 'fa-laptop text-slate-600';
 
+    // Meaningful action icon
+    let actIcon = 'fa-arrow-pointer text-slate-400';
+    const ep = row.endpoint || '';
+    if (ep.includes('Login')) actIcon = 'fa-right-to-bracket text-emerald-600';
+    else if (ep.includes('Failed')) actIcon = 'fa-triangle-exclamation text-rose-600';
+    else if (ep.includes('Portal')) actIcon = 'fa-school text-indigo-600';
+    else if (ep.includes('Receipt')) actIcon = 'fa-receipt text-blue-600';
+    else if (ep.includes('Admission')) actIcon = 'fa-user-plus text-indigo-600';
+    else if (ep.includes('Fee')) actIcon = 'fa-indian-rupee-sign text-emerald-600';
+    else if (ep.includes('Logout')) actIcon = 'fa-right-from-bracket text-slate-500';
+
     return `
       <tr class="hover:bg-slate-50 transition border-b border-slate-100">
         <td class="p-3 whitespace-nowrap font-mono text-[11px] text-slate-500">
@@ -2822,9 +2833,11 @@ function renderIpLogsTable(logs) {
             <span class="font-bold">${row.device_browser || 'Unknown Device'}</span>
           </span>
         </td>
-        <td class="p-3 font-mono text-xs text-slate-800">
-          <span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mr-1.5">${row.method || 'GET'}</span>
-          <span>${row.endpoint}</span>
+        <td class="p-3 text-xs text-slate-800">
+          <span class="inline-flex items-center font-bold text-slate-800">
+            <i class="fa-solid ${actIcon} mr-2"></i>
+            <span>${row.endpoint}</span>
+          </span>
         </td>
         <td class="p-3 whitespace-nowrap">
           <span class="inline-flex items-center text-xs font-bold text-slate-700">

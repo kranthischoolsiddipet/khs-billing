@@ -320,9 +320,67 @@ def record_activity_log(session_id: str, username: str, full_name: str, role: st
     except Exception as e:
         print(f"[AUDIT LOG ERROR]: {e}")
 
-# ----------------- HTTP VISITOR & IP ACCESS TRACKING MIDDLEWARE -----------------
-EXCLUDED_STATIC_EXTS = ('.js', '.css', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.map', '.ttf', '.webmanifest')
-EXCLUDED_LOG_PATHS = ('/api/auth/session-check', '/api/cloud-sync/status')
+# ----------------- MEANINGFUL EVENT & IP ACCESS LOGGING -----------------
+
+def log_meaningful_ip_access(ip_address: str, action_label: str, device_browser: str, username: str = "Visitor / Public", status_code: int = 200, method: str = "GET"):
+    """
+    Logs only high-value, meaningful actions for the school admin:
+    1. Portal URL visits & receipt views
+    2. Staff / Admin logins and failed login attempts
+    3. Admissions and Fee Collections
+    Filters out routine background API calls to prevent admin confusion.
+    """
+    try:
+        now = get_ist_now()
+        ts = now.strftime("%Y-%m-%d %H:%M:%S")
+        date_str = now.strftime("%Y-%m-%d")
+
+        def _worker():
+            try:
+                conn = get_db()
+                c = conn.cursor()
+
+                # Dedup URL visits from same IP on same action within 5 minutes (prevents page refresh spam)
+                if action_label in ["School Portal Visit", "Online Fee Receipt View"]:
+                    recent = c.execute("""
+                        SELECT id FROM ip_access_logs 
+                        WHERE ip_address = ? AND endpoint = ? AND date_only = ? AND timestamp >= ?
+                        LIMIT 1
+                    """, (ip_address, action_label, date_str, (now - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S"))).fetchone()
+                    if recent:
+                        conn.close()
+                        return
+
+                c.execute("""
+                    INSERT INTO ip_access_logs (ip_address, endpoint, method, device_browser, username, status_code, timestamp, date_only)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (ip_address, action_label, method, device_browser, username, status_code, ts, date_str))
+                conn.commit()
+                conn.close()
+
+                # Sync to Turso cloud outbox
+                try:
+                    payload = {
+                        "ip_address": ip_address,
+                        "endpoint": action_label,
+                        "method": method,
+                        "device_browser": device_browser,
+                        "username": username,
+                        "status_code": status_code,
+                        "timestamp": ts,
+                        "date_only": date_str
+                    }
+                    cloud_sync.queue_transaction_locally('ip_access_log', f"ip_{int(now.timestamp())}_{random.randint(100,999)}", 'INSERT', payload, "Branch 1")
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception:
+        pass
+
+# ----------------- HTTP ACCESS MIDDLEWARE (CACHE-CONTROL & URL TRACKING) -----------------
 
 @app.middleware("http")
 async def track_ip_access_middleware(request: Request, call_next):
@@ -335,55 +393,14 @@ async def track_ip_access_middleware(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
 
-    if request.method == "OPTIONS" or path in EXCLUDED_LOG_PATHS or path.startswith("/static/"):
-        return response
-    if any(path.endswith(ext) for ext in EXCLUDED_STATIC_EXTS):
-        return response
-
-    try:
+    # Only track high-level URL accesses (Home page and Receipt links).
+    # All internal API calls (e.g. /api/discounts/pending, /api/fee-structures) are ignored to avoid clutter.
+    if path in ["/", "/index.html"]:
         ip_addr, dev_browser = parse_client_info(request)
-        now = get_ist_now()
-        ts = now.strftime("%Y-%m-%d %H:%M:%S")
-        date_str = now.strftime("%Y-%m-%d")
-        
-        # User detection from query params
-        username = request.query_params.get("operator_user") or request.query_params.get("cashier_user") or request.query_params.get("username")
-        if not username:
-            username = "Visitor / Public"
-
-        status_code = response.status_code
-        
-        def _save_ip_log():
-            try:
-                conn = get_db()
-                c = conn.cursor()
-                c.execute("""
-                    INSERT INTO ip_access_logs (ip_address, endpoint, method, device_browser, username, status_code, timestamp, date_only)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (ip_addr, path, request.method, dev_browser, username, status_code, ts, date_str))
-                conn.commit()
-                conn.close()
-
-                try:
-                    payload = {
-                        "ip_address": ip_addr,
-                        "endpoint": path,
-                        "method": request.method,
-                        "device_browser": dev_browser,
-                        "username": username,
-                        "status_code": status_code,
-                        "timestamp": ts,
-                        "date_only": date_str
-                    }
-                    cloud_sync.queue_transaction_locally('ip_access_log', f"ip_{int(now.timestamp())}_{random.randint(100,999)}", 'INSERT', payload, "Branch 1")
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        
-        threading.Thread(target=_save_ip_log, daemon=True).start()
-    except Exception:
-        pass
+        log_meaningful_ip_access(ip_addr, "School Portal Visit", dev_browser, "Visitor / Public", response.status_code, request.method)
+    elif path.startswith("/receipt"):
+        ip_addr, dev_browser = parse_client_info(request)
+        log_meaningful_ip_access(ip_addr, "Online Fee Receipt View", dev_browser, "Parent / Visitor", response.status_code, request.method)
 
     return response
 
@@ -499,6 +516,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
 
     if not user:
         conn.close()
+        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Unknown User)", dev_browser, raw_input, 401, "POST")
         raise HTTPException(status_code=401, detail="User not found or access blocked.")
 
     # 1. First check if user has TOTP (Google/Microsoft Authenticator) enabled
@@ -523,6 +541,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
                 ip_address=ip_addr,
                 device_browser=dev_browser
             )
+            log_meaningful_ip_access(ip_addr, "Staff Login (Authenticator)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
             # Sync session_token to cloud
             try:
@@ -552,11 +571,13 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
 
     if not otp_row:
         conn.close()
+        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Invalid OTP)", dev_browser, raw_input, 401, "POST")
         raise HTTPException(status_code=401, detail="Invalid 6-digit Authenticator code or OTP. Please check your phone.")
 
     exp_time = datetime.strptime(otp_row['expires_at'], "%Y-%m-%d %H:%M:%S")
     if datetime.now() > exp_time:
         conn.close()
+        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Expired OTP)", dev_browser, raw_input, 401, "POST")
         raise HTTPException(status_code=401, detail="This code has expired. Please check your Authenticator app.")
 
     # Mark OTP as used and generate session_token
@@ -579,6 +600,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
         ip_address=ip_addr,
         device_browser=dev_browser
     )
+    log_meaningful_ip_access(ip_addr, "Staff Login (SMS OTP)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
     # Sync session_token to cloud
     try:
@@ -613,6 +635,7 @@ def login(creds: LoginRequest, request: Request):
 
     if not user:
         conn.close()
+        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Bad Password)", dev_browser, creds.username.strip(), 401, "POST")
         raise HTTPException(status_code=401, detail="Invalid credentials or account blocked.")
 
     sess_token = secrets.token_hex(16)
@@ -632,6 +655,7 @@ def login(creds: LoginRequest, request: Request):
         ip_address=ip_addr,
         device_browser=dev_browser
     )
+    log_meaningful_ip_access(ip_addr, "Staff / Admin Login", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
     try:
         cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
@@ -673,6 +697,7 @@ def log_session_event(req: UserSessionLogRequest, request: Request):
         ip_address=ip_addr,
         device_browser=dev_browser
     )
+    log_meaningful_ip_access(ip_addr, f"User Logout ({req.action_type})", dev_browser, f"{full_name} ({req.username.strip()})", 200, "POST")
 
     # Invalidate session_token on logout
     try:
@@ -1121,6 +1146,7 @@ def force_logout_staff(data: StaffForceLogoutRequest, request: Request):
         ip_address=ip_addr,
         device_browser=dev_browser
     )
+    log_meaningful_ip_access(ip_addr, f"Cashier Force-Terminated (by {data.operator_user})", dev_browser, f"{target['full_name']} ({target['username']})", 200, "POST")
 
     # Sync to Turso Cloud
     try:
@@ -1356,6 +1382,7 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
             ip_address=ip_addr,
             device_browser=dev_browser
         )
+        log_meaningful_ip_access(ip_addr, f"New Admission ({req.student_name.strip()} - {req.class_name})", dev_browser, operator_user, 200, "POST")
     except Exception as e:
         print(f"[AUDIT LOG ERROR ADMISSION]: {e}")
 
@@ -1853,6 +1880,7 @@ def collect_payment(req: PaymentCreateRequest, request: Request, cashier_user: s
             ip_address=ip_addr,
             device_browser=dev_browser
         )
+        log_meaningful_ip_access(ip_addr, f"Fee Collection (Rs. {req.amount_paid:,.0f} - {receipt_no})", dev_browser, cashier_user, 200, "POST")
     except Exception as e:
         print(f"[AUDIT LOG ERROR PAYMENT]: {e}")
 

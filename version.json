@@ -1,7 +1,7 @@
 {
-  "version": "1.1.1",
-  "released_at": "2026-10-25",
-  "notes": "Added IP & Device display to Staff & Cashiers tab, added Cache-Control headers, and cache-busted app.js?v=1.1.1",
+  "version": "1.1.2",
+  "released_at": "2026-10-26",
+  "notes": "Streamlined IP tracking to only high-value administrative events (URL visits, logins, admissions, payments) and removed routine API clutter",
   "files": [
     "main.py",
     "index.html",
