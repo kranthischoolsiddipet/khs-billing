@@ -1,7 +1,7 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "released_at": "2026-10-25",
-  "notes": "Added Option 1 (IP Address, Device & Browser in Staff Session Logs) and Option 2 (Visitor & IP Access Tracker tab for Admin & Super Admin)",
+  "notes": "Added IP & Device display to Staff & Cashiers tab, added Cache-Control headers, and cache-busted app.js?v=1.1.1",
   "files": [
     "main.py",
     "index.html",

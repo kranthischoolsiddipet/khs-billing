@@ -174,6 +174,8 @@ def pull_cloud_data_into_local_db():
     except Exception as e:
         conn.close()
         return False, str(e)
+
+def normalize_turso_url(url: str):
     """Ensures url uses https:// and endpoints /v2/pipeline for Turso HTTP API"""
     u = url.strip()
     if u.startswith("libsql://"):

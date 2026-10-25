@@ -2221,11 +2221,32 @@ async function loadStaffUsers() {
              <i class="fa-solid fa-qrcode mr-1"></i> Setup QR
            </button>`;
 
+      const sessionBadge = u.is_online
+        ? `<span class="inline-flex items-center text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+             <span class="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1 animate-pulse"></span> ONLINE
+           </span>`
+        : `<span class="inline-flex items-center text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">OFFLINE</span>`;
+
+      const ipInfoHtml = u.last_ip 
+        ? `<div class="text-[10px] font-mono text-indigo-700 font-bold mt-1 flex items-center">
+             <i class="fa-solid fa-globe mr-1 text-indigo-500"></i> ${u.last_ip}
+           </div>
+           <div class="text-[10px] text-slate-500 mt-0.5">
+             <i class="fa-solid fa-laptop mr-1 text-slate-400"></i> ${u.last_device || 'Unknown Device'}
+           </div>`
+        : `<div class="text-[10px] text-slate-400 mt-1">No IP recorded</div>`;
+
       return `
         <tr class="hover:bg-slate-50 transition">
-          <td class="p-3 font-bold text-slate-900">${u.full_name}</td>
+          <td class="p-3">
+            <div class="font-bold text-slate-900">${u.full_name}</div>
+            <div class="text-[10px] text-slate-500">${u.phone || ''}</div>
+          </td>
           <td class="p-3 font-mono font-bold text-indigo-900">${u.username}</td>
-          <td class="p-3"><span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">${u.role_name}</span></td>
+          <td class="p-3">
+            <div>${sessionBadge}</div>
+            ${ipInfoHtml}
+          </td>
           <td class="p-3">${statusBadge}</td>
           <td class="p-3 text-center">${toggleBtn}</td>
           <td class="p-3 text-right space-x-1.5 whitespace-nowrap">

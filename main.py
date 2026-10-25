@@ -329,6 +329,12 @@ async def track_ip_access_middleware(request: Request, call_next):
     response = await call_next(request)
     
     path = request.url.path
+    # Prevent browser caching of core frontend logic and APIs
+    if path.endswith(('.html', '.js')) or path == '/' or path.startswith('/api/'):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
     if request.method == "OPTIONS" or path in EXCLUDED_LOG_PATHS or path.startswith("/static/"):
         return response
     if any(path.endswith(ext) for ext in EXCLUDED_STATIC_EXTS):
@@ -357,6 +363,21 @@ async def track_ip_access_middleware(request: Request, call_next):
                 """, (ip_addr, path, request.method, dev_browser, username, status_code, ts, date_str))
                 conn.commit()
                 conn.close()
+
+                try:
+                    payload = {
+                        "ip_address": ip_addr,
+                        "endpoint": path,
+                        "method": request.method,
+                        "device_browser": dev_browser,
+                        "username": username,
+                        "status_code": status_code,
+                        "timestamp": ts,
+                        "date_only": date_str
+                    }
+                    cloud_sync.queue_transaction_locally('ip_access_log', f"ip_{int(now.timestamp())}_{random.randint(100,999)}", 'INSERT', payload, "Branch 1")
+                except Exception:
+                    pass
             except Exception:
                 pass
         
@@ -912,22 +933,43 @@ def get_staff_users():
     conn = get_db()
     # Only return front desk / billing users (role == 'T3')
     rows = conn.execute("""
-        SELECT id, username, full_name, role, phone, totp_secret, is_active, created_at 
+        SELECT id, username, full_name, role, phone, totp_secret, session_token, is_active, created_at 
         FROM users 
         WHERE role = 'T3'
         ORDER BY id ASC
     """).fetchall()
-    conn.close()
     
     staff_list = []
     for r in rows:
         d = dict_from_row(r)
         d['role_name'] = 'Billing Desk'
         d['has_authenticator'] = bool(r['totp_secret'] and len(r['totp_secret'].strip()) > 8)
+        d['is_online'] = bool(r['session_token'] and len(r['session_token'].strip()) > 0)
+
+        # Retrieve latest activity log for this cashier
+        last_log = conn.execute("""
+            SELECT ip_address, device_browser, timestamp, action_type
+            FROM user_activity_logs
+            WHERE username = ?
+            ORDER BY id DESC LIMIT 1
+        """, (r['username'],)).fetchone()
+
+        if last_log:
+            d['last_ip'] = last_log['ip_address'] or ''
+            d['last_device'] = last_log['device_browser'] or ''
+            d['last_seen'] = last_log['timestamp'] or ''
+            d['last_action'] = last_log['action_type'] or ''
+        else:
+            d['last_ip'] = ''
+            d['last_device'] = ''
+            d['last_seen'] = ''
+            d['last_action'] = ''
+
         # do not leak raw secret in list
         del d['totp_secret']
         staff_list.append(d)
         
+    conn.close()
     return {
         "status": "success",
         "count": len(staff_list),
