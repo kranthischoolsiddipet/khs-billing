@@ -14,8 +14,20 @@ function getOrCreateSessionId() {
   return sId;
 }
 
+// Helper to format ISO/Local timestamp to Indian Standard Time (YYYY-MM-DD HH:MM:SS)
+function formatISTTimestamp(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const mins = pad(d.getMinutes());
+  const secs = pad(d.getSeconds());
+  return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+}
+
 // Send session end event to backend
-function sendSessionEndEvent(actionType, reason) {
+function sendSessionEndEvent(actionType, reason, customTimestamp = null) {
   const sId = sessionStorage.getItem('khs_session_id');
   if (!currentUser || !sId) return;
 
@@ -23,20 +35,22 @@ function sendSessionEndEvent(actionType, reason) {
     session_id: sId,
     username: currentUser.username || currentUser.phone || 'unknown',
     action_type: actionType, // 'LOGOUT' or 'AUTO_TIMEOUT'
-    action_details: reason || (actionType === 'LOGOUT' ? 'Manual user logout' : '15-minute inactivity auto logout')
+    action_details: reason || (actionType === 'LOGOUT' ? 'Manual user logout' : '15-minute inactivity auto logout'),
+    event_timestamp: customTimestamp || null
   };
 
   try {
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/auth/session-log', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
-    } else {
-      fetch('/api/auth/session-log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        keepalive: true
-      }).catch(() => {});
-    }
+    // Priority: Fetch with keepalive: true (best modern standard for unload/logout)
+    fetch('/api/auth/session-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).catch(() => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/auth/session-log', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      }
+    });
   } catch (e) {
     console.error("Error logging session end:", e);
   }
@@ -47,6 +61,9 @@ const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 Minutes
 let inactivityTimer = null;
 
 function resetInactivityTimer() {
+  if (currentUser) {
+    localStorage.setItem('khs_last_active', String(Date.now()));
+  }
   if (inactivityTimer) clearTimeout(inactivityTimer);
   // Only track inactivity if a user is currently logged in
   if (currentUser) {
@@ -59,10 +76,23 @@ function resetInactivityTimer() {
 function handleAutoLogoutDueToInactivity() {
   if (!currentUser) return;
   console.log("[SECURITY] Inactivity timeout reached (15m). Auto logging out user.");
+
+  // Calculate the exact elapsed timeout timestamp (last active + 15 mins)
+  const lastActiveStr = localStorage.getItem('khs_last_active');
+  let timeoutTs = null;
+  if (lastActiveStr) {
+    const lastActiveMs = parseInt(lastActiveStr, 10);
+    if (!isNaN(lastActiveMs)) {
+      const calculatedEnd = new Date(lastActiveMs + INACTIVITY_TIMEOUT_MS);
+      // Ensure we don't stamp into the future
+      timeoutTs = formatISTTimestamp(calculatedEnd < new Date() ? calculatedEnd : new Date());
+    }
+  }
   
   // Record session timeout in backend logs
-  sendSessionEndEvent('AUTO_TIMEOUT', '15-minute inactivity session lock');
+  sendSessionEndEvent('AUTO_TIMEOUT', '15-minute inactivity session lock', timeoutTs);
   sessionStorage.removeItem('khs_session_id');
+  localStorage.removeItem('khs_last_active');
 
   currentUser = null;
   localStorage.removeItem('khs_user');
@@ -83,6 +113,7 @@ function handleManualLogout() {
     // Record manual logout in backend logs
     sendSessionEndEvent('LOGOUT', 'User clicked manual Logout');
     sessionStorage.removeItem('khs_session_id');
+    localStorage.removeItem('khs_last_active');
 
     currentUser = null;
     localStorage.removeItem('khs_user');
@@ -99,6 +130,31 @@ function handleManualLogout() {
   }
 }
 
+// Recurring elapsed-time checker (10s): catches laptop wake-ups, sleep modes, backgrounded tabs
+setInterval(() => {
+  if (!currentUser) return;
+  const lastActiveStr = localStorage.getItem('khs_last_active');
+  if (lastActiveStr) {
+    const lastActiveMs = parseInt(lastActiveStr, 10);
+    if (!isNaN(lastActiveMs) && (Date.now() - lastActiveMs) >= INACTIVITY_TIMEOUT_MS) {
+      handleAutoLogoutDueToInactivity();
+    }
+  }
+}, 10000);
+
+// Check inactivity on visibility change (e.g. user unlocks laptop or switches back to tab)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && currentUser) {
+    const lastActiveStr = localStorage.getItem('khs_last_active');
+    if (lastActiveStr) {
+      const lastActiveMs = parseInt(lastActiveStr, 10);
+      if (!isNaN(lastActiveMs) && (Date.now() - lastActiveMs) >= INACTIVITY_TIMEOUT_MS) {
+        handleAutoLogoutDueToInactivity();
+      }
+    }
+  }
+});
+
 // Background session validity check (detects remote forced logout by Admin)
 setInterval(async () => {
   if (!currentUser || currentUser.role !== 'T3') return;
@@ -111,6 +167,7 @@ setInterval(async () => {
     if (data && data.active === false) {
       currentUser = null;
       localStorage.removeItem('khs_user');
+      localStorage.removeItem('khs_last_active');
       sessionStorage.removeItem('khs_session_id');
       if (inactivityTimer) clearTimeout(inactivityTimer);
 
@@ -139,6 +196,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check localStorage for saved session
   const savedUser = localStorage.getItem('khs_user');
   if (savedUser) {
+    // Check if session had already timed out while page was closed
+    const lastActiveStr = localStorage.getItem('khs_last_active');
+    if (lastActiveStr) {
+      const lastActiveMs = parseInt(lastActiveStr, 10);
+      if (!isNaN(lastActiveMs) && (Date.now() - lastActiveMs) >= INACTIVITY_TIMEOUT_MS) {
+        currentUser = JSON.parse(savedUser);
+        handleAutoLogoutDueToInactivity();
+        return;
+      }
+    }
     currentUser = JSON.parse(savedUser);
     applyUserRoleUI();
     document.getElementById('loginModal').classList.add('hidden');
@@ -200,6 +267,7 @@ async function handleLoginSubmit(e) {
     currentUser = data.user;
     if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
+    localStorage.setItem('khs_last_active', String(Date.now()));
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
     const main = document.getElementById('appMainContainer');
@@ -2155,6 +2223,7 @@ async function handleVerifyOtpSubmit() {
     currentUser = data.user;
     if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
+    localStorage.setItem('khs_last_active', String(Date.now()));
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
     const main = document.getElementById('appMainContainer');

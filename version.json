@@ -1,7 +1,7 @@
 {
-  "version": "1.1.2",
+  "version": "1.1.3",
   "released_at": "2026-10-26",
-  "notes": "Streamlined IP tracking to only high-value administrative events (URL visits, logins, admissions, payments) and removed routine API clutter",
+  "notes": "Accurate Staff Session Logout & Inactivity Timeout tracking (15-minute auto-timeout resolution, elapsed timestamp calculation, and server-side session reconciliation)",
   "files": [
     "main.py",
     "index.html",

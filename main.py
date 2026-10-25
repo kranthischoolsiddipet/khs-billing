@@ -217,6 +217,7 @@ class UserSessionLogRequest(BaseModel):
     username: str
     action_type: str # 'LOGOUT' or 'AUTO_TIMEOUT'
     action_details: Optional[str] = ""
+    event_timestamp: Optional[str] = None
 
 def parse_client_info(request: Request) -> tuple:
     """Extracts client IP address and device/browser details from HTTP request"""
@@ -272,12 +273,12 @@ def parse_client_info(request: Request) -> tuple:
     device_browser = f"{device} • {browser}"
     return client_ip, device_browser
 
-def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0, ip_address: str = "", device_browser: str = ""):
+def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0, ip_address: str = "", device_browser: str = "", custom_timestamp: str = None):
     """Logs user login, logout, new admission, and fee payment events for audit trails"""
     try:
         now = get_ist_now()
-        ts = now.strftime("%Y-%m-%d %H:%M:%S")
-        date_str = now.strftime("%Y-%m-%d")
+        ts = custom_timestamp if custom_timestamp else now.strftime("%Y-%m-%d %H:%M:%S")
+        date_str = ts.split(" ")[0] if custom_timestamp else now.strftime("%Y-%m-%d")
         conn = get_db()
         cursor = conn.cursor()
 
@@ -341,7 +342,7 @@ def log_meaningful_ip_access(ip_address: str, action_label: str, device_browser:
                 c = conn.cursor()
 
                 # Dedup URL visits from same IP on same action within 5 minutes (prevents page refresh spam)
-                if action_label in ["School Portal Visit", "Online Fee Receipt View"]:
+                if action_label in ["Billing Portal Visit", "Online Fee Receipt View"]:
                     recent = c.execute("""
                         SELECT id FROM ip_access_logs 
                         WHERE ip_address = ? AND endpoint = ? AND date_only = ? AND timestamp >= ?
@@ -397,7 +398,7 @@ async def track_ip_access_middleware(request: Request, call_next):
     # All internal API calls (e.g. /api/discounts/pending, /api/fee-structures) are ignored to avoid clutter.
     if path in ["/", "/index.html"]:
         ip_addr, dev_browser = parse_client_info(request)
-        log_meaningful_ip_access(ip_addr, "School Portal Visit", dev_browser, "Visitor / Public", response.status_code, request.method)
+        log_meaningful_ip_access(ip_addr, "Billing Portal Visit", dev_browser, "Visitor / Public", response.status_code, request.method)
     elif path.startswith("/receipt"):
         ip_addr, dev_browser = parse_client_info(request)
         log_meaningful_ip_access(ip_addr, "Online Fee Receipt View", dev_browser, "Parent / Visitor", response.status_code, request.method)
@@ -695,7 +696,8 @@ def log_session_event(req: UserSessionLogRequest, request: Request):
         action_type=req.action_type.strip(),
         action_details=req.action_details.strip() or f"User ended session ({req.action_type})",
         ip_address=ip_addr,
-        device_browser=dev_browser
+        device_browser=dev_browser,
+        custom_timestamp=req.event_timestamp
     )
     log_meaningful_ip_access(ip_addr, f"User Logout ({req.action_type})", dev_browser, f"{full_name} ({req.username.strip()})", 200, "POST")
 
@@ -825,8 +827,59 @@ def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...
 
     # Sort actions inside each session chronologically
     session_list = list(sessions_map.values())
+    ist_now = get_ist_now()
+
     for s in session_list:
         s['actions'].sort(key=lambda x: x['timestamp'])
+
+        # Auto-reconcile sessions that never had an explicit logout recorded
+        if not s['logout_time']:
+            # Find the latest action timestamp in this session
+            latest_action_ts_str = None
+            for act in reversed(s['actions']):
+                if act.get('timestamp'):
+                    latest_action_ts_str = act['timestamp']
+                    break
+            if not latest_action_ts_str and s.get('login_time'):
+                latest_action_ts_str = s['login_time']
+
+            if latest_action_ts_str:
+                try:
+                    # Parse timestamp (expected format YYYY-MM-DD HH:MM:SS)
+                    act_dt = datetime.strptime(latest_action_ts_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST_TZ)
+                    elapsed_seconds = (ist_now - act_dt).total_seconds()
+
+                    # If session is from a prior date OR last activity was > 15 minutes ago
+                    is_prior_date = (clean_date < ist_now.strftime("%Y-%m-%d"))
+                    if elapsed_seconds > (15 * 60) or is_prior_date:
+                        # Auto-timeout is computed at latest action + 15 minutes
+                        timeout_dt = act_dt + timedelta(minutes=15)
+                        # Cap at now if somehow projected beyond current time
+                        if timeout_dt > ist_now:
+                            timeout_dt = ist_now
+                        calc_logout_time = timeout_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+                        s['logout_time'] = calc_logout_time
+                        s['logout_type'] = 'AUTO_TIMEOUT'
+
+                        # Auto-persist this AUTO_TIMEOUT to the database so it's permanently recorded and synced
+                        try:
+                            record_activity_log(
+                                session_id=s['session_id'],
+                                username=s['username'],
+                                full_name=s['full_name'],
+                                role=s['role'],
+                                branch=s['branch'],
+                                action_type="AUTO_TIMEOUT",
+                                action_details="Auto-logged out after 15 minutes of inactivity",
+                                ip_address=s.get('ip_address', ''),
+                                device_browser=s.get('device_browser', ''),
+                                custom_timestamp=calc_logout_time
+                            )
+                        except Exception as e_rec:
+                            print(f"[RECONCILE TIMEOUT NOTICE]: {e_rec}")
+                except Exception as e_parse:
+                    print(f"[SESSION TS PARSE ERROR]: {e_parse}")
 
     return {
         "status": "success",
