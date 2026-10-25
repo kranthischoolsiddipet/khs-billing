@@ -1,11 +1,12 @@
 {
-  "version": "1.0.9",
-  "released_at": "2026-10-24",
-  "notes": "Added Staff Session & Transaction Audit Logs with date picker and role hierarchy",
+  "version": "1.1.0",
+  "released_at": "2026-10-25",
+  "notes": "Added Option 1 (IP Address, Device & Browser in Staff Session Logs) and Option 2 (Visitor & IP Access Tracker tab for Admin & Super Admin)",
   "files": [
     "main.py",
     "index.html",
     "app.js",
-    "database.py"
+    "database.py",
+    "cloud_sync.py"
   ]
 }

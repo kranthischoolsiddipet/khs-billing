@@ -99,6 +99,35 @@ function handleManualLogout() {
   }
 }
 
+// Background session validity check (detects remote forced logout by Admin)
+setInterval(async () => {
+  if (!currentUser || currentUser.role !== 'T3') return;
+  const token = currentUser.session_token || '';
+  if (!token) return;
+
+  try {
+    const res = await fetch(`/api/auth/session-check?username=${encodeURIComponent(currentUser.username)}&token=${encodeURIComponent(token)}`);
+    const data = await res.json();
+    if (data && data.active === false) {
+      currentUser = null;
+      localStorage.removeItem('khs_user');
+      sessionStorage.removeItem('khs_session_id');
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+
+      const header = document.getElementById('appTopHeader');
+      const main = document.getElementById('appMainContainer');
+      if (header) header.classList.add('hidden');
+      if (main) main.classList.add('hidden');
+
+      document.getElementById('userNameDisplay').innerText = "Session Ended";
+      openLoginModal();
+      alert("Session Terminated: " + (data.reason || "Your login session has been remotely logged out by Admin."));
+    }
+  } catch (e) {
+    // Ignore network hiccups
+  }
+}, 6000);
+
 // Attach activity listeners (mouse movement, clicks, keypress, touch)
 ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'input'].forEach(evt => {
   window.addEventListener(evt, resetInactivityTimer, { passive: true });
@@ -226,7 +255,7 @@ function applyUserRoleUI() {
   const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
   
   // Strictly Admin-only tabs: discounts (Approvals Queue), staff user management, and logs (Audit & Session logs)
-  const adminOnlyTabIds = ['discounts', 'staff', 'logs'];
+  const adminOnlyTabIds = ['discounts', 'staff', 'logs', 'iplogs'];
   adminOnlyTabIds.forEach(tabId => {
     const tabBtn = document.getElementById(`tab-${tabId}`);
     if (tabBtn) {
@@ -298,7 +327,7 @@ function applyUserRoleUI() {
 
 function switchTab(tabId) {
   const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
-  const adminOnlyTabIds = ['discounts', 'staff', 'logs'];
+  const adminOnlyTabIds = ['discounts', 'staff', 'logs', 'iplogs'];
 
   if (!isAdmin && adminOnlyTabIds.includes(tabId)) {
     alert("Access Denied: Only School Admins have permission to access this section.");
@@ -317,7 +346,7 @@ function switchTab(tabId) {
   }
 
   // Tab buttons
-  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff', 'logs'].forEach(id => {
+  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff', 'logs', 'iplogs'].forEach(id => {
     const btn = document.getElementById(`tab-${id}`);
     const sec = document.getElementById(`sec-${id}`);
     if (btn) {
@@ -351,6 +380,7 @@ function switchTab(tabId) {
   if (tabId === 'reports') loadEodReport();
   if (tabId === 'staff') loadStaffUsers();
   if (tabId === 'logs') loadAuditLogs();
+  if (tabId === 'iplogs') loadIpTrackerLogs();
 }
 
 // ================= SEARCH & INSTALLMENT COLLECTION =================
@@ -1169,7 +1199,7 @@ async function loadPendingAdmissionChanges() {
 
         let currentSummary = `
           <div class="space-y-0.5">
-            <p class="font-bold text-slate-800">${req.current_data.student_name || '--'}</p>
+            <p class="font-bold text-slate-800">${req.current_data.student_name || '--'} ${req.current_data.roll_no ? '<span class="text-[10px] text-indigo-700 font-mono">(Roll: ' + req.current_data.roll_no + ')</span>' : ''}</p>
             <p class="text-[10px] text-slate-500">${req.current_data.class_name || ''} ${req.current_data.section ? '- ' + req.current_data.section : ''} (${req.current_data.student_type || ''})</p>
             <p class="text-[10px] text-slate-500">Parent: ${req.current_data.parent_name || ''} (${req.current_data.parent_phone || ''})</p>
           </div>
@@ -1185,9 +1215,10 @@ async function loadPendingAdmissionChanges() {
           `;
         } else {
           const prop = req.proposed_data || {};
+          const propRoll = prop.roll_no !== undefined ? prop.roll_no : req.current_data.roll_no;
           proposedSummary = `
             <div class="space-y-0.5">
-              <p class="font-bold text-indigo-900">${prop.student_name || req.current_data.student_name}</p>
+              <p class="font-bold text-indigo-900">${prop.student_name || req.current_data.student_name} ${propRoll ? '<span class="text-[10px] text-emerald-700 font-mono font-bold">(Roll: ' + propRoll + ')</span>' : ''}</p>
               <p class="text-[10px] text-indigo-700">${prop.class_name || req.current_data.class_name} ${prop.section ? '- ' + prop.section : ''} (${prop.student_type || req.current_data.student_type})</p>
               <p class="text-[10px] text-indigo-700">Parent: ${prop.parent_name || req.current_data.parent_name} (${prop.parent_phone || req.current_data.parent_phone})</p>
               <p class="text-[10px] italic text-slate-600">Reason: "${req.reason}"</p>
@@ -1371,8 +1402,11 @@ function openRequestEditModal() {
   if (!currentStudent) return alert("Select a student first!");
 
   document.getElementById('reqEditStudentName').value = currentStudent.student_name || '';
+  if (document.getElementById('reqEditRollNo')) {
+    document.getElementById('reqEditRollNo').value = currentStudent.roll_no || '';
+  }
   document.getElementById('reqEditClass').value = currentStudent.class_name || 'Class 1';
-  document.getElementById('reqEditSection').value = currentStudent.section || 'A';
+  document.getElementById('reqEditSection').value = currentStudent.section || '';
   document.getElementById('reqEditStudentType').value = currentStudent.student_type || 'Day Scholar';
   document.getElementById('reqEditParentName').value = currentStudent.parent_name || '';
   document.getElementById('reqEditParentPhone').value = currentStudent.parent_phone || '';
@@ -1392,8 +1426,11 @@ async function submitRequestEditForm(e) {
   const reason = document.getElementById('reqEditReason').value.trim();
   if (!reason) return alert("Please specify the reason for this edit request.");
 
+  const rollVal = document.getElementById('reqEditRollNo') ? document.getElementById('reqEditRollNo').value.trim() : (currentStudent.roll_no || '');
+
   const proposed = {
     student_name: document.getElementById('reqEditStudentName').value.trim().toUpperCase(),
+    roll_no: rollVal,
     class_name: document.getElementById('reqEditClass').value,
     section: document.getElementById('reqEditSection').value.trim().toUpperCase(),
     student_type: document.getElementById('reqEditStudentType').value,
@@ -2193,6 +2230,9 @@ async function loadStaffUsers() {
           <td class="p-3 text-center">${toggleBtn}</td>
           <td class="p-3 text-right space-x-1.5 whitespace-nowrap">
             ${authBadge}
+            <button onclick="forceLogoutStaff(${u.id}, '${u.full_name.replace(/'/g, "\\'")}', '${u.username}')" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-2.5 py-1 rounded-lg text-xs transition" title="Force Logout Active Session for this staff">
+              <i class="fa-solid fa-arrow-right-from-bracket mr-1"></i> Force Logout
+            </button>
             <button onclick="editStaffUser(${u.id}, '${u.full_name.replace(/'/g, "\\'")}', '${u.username}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold px-2.5 py-1 rounded-lg text-xs transition" title="Edit Staff Name or Mobile">
               <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
             </button>
@@ -2377,6 +2417,38 @@ async function toggleStaffBlock(userId, unblock) {
   }
 }
 
+async function forceLogoutStaff(userId, fullName, username) {
+  if (!currentUser || !['T1', 'T2'].includes(currentUser.role)) {
+    return alert("Only Admin or Super Admin can force logout staff.");
+  }
+
+  if (!confirm(`Are you sure you want to FORCE LOGOUT all active sessions for "${fullName}" (${username})? They will be immediately disconnected and required to re-authenticate.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/staff/force-logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        operator_user: currentUser.username
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Failed to force logout staff");
+      return;
+    }
+
+    alert(data.message);
+    loadStaffUsers();
+  } catch (err) {
+    alert("Server error forcing logout: " + err);
+  }
+}
+
 // ================= AUDIT & SESSION ACTIVITY LOGS (ADMIN & SUPER ADMIN) =================
 
 async function loadAuditLogs() {
@@ -2554,8 +2626,8 @@ async function loadAuditLogs() {
               </div>
             </div>
 
-            <!-- Login / Logout times -->
-            <div class="flex items-center space-x-4 text-xs">
+            <!-- Login / Logout times & IP / Device Tracker -->
+            <div class="flex flex-wrap items-center gap-3 text-xs">
               <div class="bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-left">
                 <div class="text-[10px] font-bold text-slate-400 uppercase">Login Time</div>
                 <div class="font-extrabold text-slate-800 flex items-center mt-0.5">
@@ -2567,6 +2639,20 @@ async function loadAuditLogs() {
                 <div class="text-[10px] font-bold text-slate-400 uppercase">Logout Status</div>
                 <div class="mt-0.5">
                   ${logoutDisplay}
+                </div>
+              </div>
+
+              <div class="bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-left">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">IP Address</div>
+                <div class="font-black text-indigo-700 flex items-center mt-0.5">
+                  <i class="fa-solid fa-globe mr-1.5 text-indigo-500"></i> ${sess.ip_address || '127.0.0.1 (Local)'}
+                </div>
+              </div>
+
+              <div class="bg-white px-3 py-1.5 rounded-xl border border-slate-200 text-left">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Device & Browser</div>
+                <div class="font-bold text-slate-700 flex items-center mt-0.5">
+                  <i class="fa-solid fa-laptop mr-1.5 text-slate-500"></i> ${sess.device_browser || 'Desktop • Browser'}
                 </div>
               </div>
             </div>
@@ -2596,6 +2682,155 @@ async function loadAuditLogs() {
       </div>
     `;
   }
+}
+
+// ================= VISITOR & IP ACCESS TRACKER (OPTION 2) =================
+
+let currentIpLogsData = [];
+
+async function loadIpTrackerLogs() {
+  if (!currentUser) return;
+  const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
+  if (!isAdmin) return;
+
+  const dateInput = document.getElementById('ipDatePicker');
+  let targetDate = dateInput ? dateInput.value : '';
+  if (!targetDate) {
+    const now = new Date();
+    targetDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (dateInput) dateInput.value = targetDate;
+  }
+
+  const tbody = document.getElementById('ipLogsTableBody');
+  if (!tbody) return;
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="6" class="p-8 text-center text-slate-400">
+        <i class="fa-solid fa-spinner fa-spin text-lg mb-2 text-indigo-600"></i><br>
+        Fetching visitor & IP logs for ${targetDate}...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const res = await fetch(`/api/security/ip-logs?target_date=${targetDate}&operator_user=${encodeURIComponent(currentUser.username)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="p-6 text-center text-rose-600 font-bold bg-rose-50">
+            <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> ${data.detail || "Unable to load IP access logs"}
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    currentIpLogsData = data.logs || [];
+
+    const visitsEl = document.getElementById('ipTotalVisits');
+    if (visitsEl) visitsEl.innerText = data.total_visits || 0;
+    const uniqEl = document.getElementById('ipUniqueCount');
+    if (uniqEl) uniqEl.innerText = data.unique_ips || 0;
+    const deskEl = document.getElementById('ipDesktopCount');
+    if (deskEl) deskEl.innerText = data.desktop_count || 0;
+    const mobEl = document.getElementById('ipMobileCount');
+    if (mobEl) mobEl.innerText = data.mobile_count || 0;
+
+    const notice = document.getElementById('ipTimestampNotice');
+    if (notice) notice.innerText = `Showing ${currentIpLogsData.length} records for ${targetDate}`;
+
+    renderIpLogsTable(currentIpLogsData);
+  } catch (err) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="p-6 text-center text-rose-600 font-bold bg-rose-50">
+          <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Network error: ${err.message}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+function renderIpLogsTable(logs) {
+  const tbody = document.getElementById('ipLogsTableBody');
+  if (!tbody) return;
+
+  if (!logs || logs.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="p-8 text-center text-slate-400">
+          <i class="fa-solid fa-network-wired text-xl mb-2 text-slate-300"></i><br>
+          No access or visitor activity recorded for this date.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = logs.map(row => {
+    const timeFormatted = row.timestamp ? new Date(row.timestamp.replace(' ', 'T')).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : row.timestamp;
+    
+    // Status badge
+    const isSuccess = (row.status_code >= 200 && row.status_code < 300);
+    const isRedirect = (row.status_code >= 300 && row.status_code < 400);
+    const statusBadge = isSuccess
+      ? `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">${row.status_code} OK</span>`
+      : (isRedirect ? `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-50 text-blue-700 border border-blue-200">${row.status_code}</span>`
+      : `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-50 text-rose-700 border border-rose-200">${row.status_code}</span>`);
+
+    // Device badge
+    const isMobile = (row.device_browser || '').includes('Android') || (row.device_browser || '').includes('iPhone') || (row.device_browser || '').includes('iPad');
+    const deviceIcon = isMobile ? 'fa-mobile-screen text-indigo-500' : 'fa-laptop text-slate-600';
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+        <td class="p-3 whitespace-nowrap font-mono text-[11px] text-slate-500">
+          <i class="fa-regular fa-clock mr-1 text-slate-400"></i>${timeFormatted}
+        </td>
+        <td class="p-3 whitespace-nowrap">
+          <span class="inline-flex items-center font-mono font-bold text-indigo-700 bg-indigo-50/80 px-2.5 py-1 rounded-lg border border-indigo-100 text-xs">
+            <i class="fa-solid fa-globe mr-1.5 text-indigo-500"></i>${row.ip_address}
+          </span>
+        </td>
+        <td class="p-3 whitespace-nowrap text-slate-700">
+          <span class="inline-flex items-center">
+            <i class="fa-solid ${deviceIcon} mr-1.5"></i>
+            <span class="font-bold">${row.device_browser || 'Unknown Device'}</span>
+          </span>
+        </td>
+        <td class="p-3 font-mono text-xs text-slate-800">
+          <span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mr-1.5">${row.method || 'GET'}</span>
+          <span>${row.endpoint}</span>
+        </td>
+        <td class="p-3 whitespace-nowrap">
+          <span class="inline-flex items-center text-xs font-bold text-slate-700">
+            <i class="fa-solid fa-user-circle mr-1 text-slate-400"></i>${row.username || 'Visitor / Public'}
+          </span>
+        </td>
+        <td class="p-3 text-center whitespace-nowrap">
+          ${statusBadge}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterIpLogsTable() {
+  const query = (document.getElementById('ipFilterSearch')?.value || '').toLowerCase().trim();
+  if (!query) {
+    renderIpLogsTable(currentIpLogsData);
+    return;
+  }
+  const filtered = currentIpLogsData.filter(r => 
+    (r.ip_address || '').toLowerCase().includes(query) ||
+    (r.endpoint || '').toLowerCase().includes(query) ||
+    (r.username || '').toLowerCase().includes(query) ||
+    (r.device_browser || '').toLowerCase().includes(query)
+  );
+  renderIpLogsTable(filtered);
 }
 
 // ================= CLASS-WISE ENROLLED STUDENTS =================

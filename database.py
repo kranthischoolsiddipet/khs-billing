@@ -33,6 +33,8 @@ def init_db():
     cols = [col[1] for col in cursor.fetchall()]
     if 'totp_secret' not in cols:
         cursor.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''")
+    if 'session_token' not in cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN session_token TEXT DEFAULT ''")
 
     # OTP Table (For Mobile Number + OTP Login)
     cursor.execute("""
@@ -225,12 +227,39 @@ def init_db():
         entity_id TEXT,              -- receipt_no or admission_no
         amount REAL DEFAULT 0.0,
         timestamp TEXT NOT NULL,     -- 'YYYY-MM-DD HH:MM:SS'
-        date_only TEXT NOT NULL      -- 'YYYY-MM-DD' for high-speed date filtering
+        date_only TEXT NOT NULL,     -- 'YYYY-MM-DD' for high-speed date filtering
+        ip_address TEXT DEFAULT '',
+        device_browser TEXT DEFAULT ''
     );
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_date ON user_activity_logs(date_only);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_user ON user_activity_logs(username);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_act_logs_sess ON user_activity_logs(session_id);")
+
+    # Migration for user_activity_logs columns if already existing
+    cursor.execute("PRAGMA table_info(user_activity_logs)")
+    act_cols = [col[1] for col in cursor.fetchall()]
+    if 'ip_address' not in act_cols:
+        cursor.execute("ALTER TABLE user_activity_logs ADD COLUMN ip_address TEXT DEFAULT '';")
+    if 'device_browser' not in act_cols:
+        cursor.execute("ALTER TABLE user_activity_logs ADD COLUMN device_browser TEXT DEFAULT '';")
+
+    # 5d. IP & Visitor Access Tracking Table (Option 2)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ip_access_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip_address TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        method TEXT NOT NULL,
+        device_browser TEXT DEFAULT '',
+        username TEXT DEFAULT 'Visitor / Public',
+        status_code INTEGER DEFAULT 200,
+        timestamp TEXT NOT NULL,     -- 'YYYY-MM-DD HH:MM:SS'
+        date_only TEXT NOT NULL      -- 'YYYY-MM-DD'
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_iplogs_date ON ip_access_logs(date_only);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);")
 
     # 6. Seed Default Users if not present
     cursor.execute("SELECT COUNT(*) FROM users;")

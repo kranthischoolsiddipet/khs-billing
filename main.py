@@ -208,13 +208,71 @@ class StaffUserUpdate(BaseModel):
 class StaffUserDelete(BaseModel):
     user_id: int
 
+class StaffForceLogoutRequest(BaseModel):
+    user_id: int
+    operator_user: str
+
 class UserSessionLogRequest(BaseModel):
     session_id: str
     username: str
     action_type: str # 'LOGOUT' or 'AUTO_TIMEOUT'
     action_details: Optional[str] = ""
 
-def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0):
+def parse_client_info(request: Request) -> tuple:
+    """Extracts client IP address and device/browser details from HTTP request"""
+    # 1. IP resolution (handling Render/Cloudflare/reverse-proxy headers)
+    forwarded = request.headers.get("x-forwarded-for")
+    cf_connecting = request.headers.get("cf-connecting-ip")
+    real_ip = request.headers.get("x-real-ip")
+    
+    if cf_connecting:
+        client_ip = cf_connecting.strip()
+    elif forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    elif real_ip:
+        client_ip = real_ip.strip()
+    elif request.client and request.client.host:
+        client_ip = request.client.host
+    else:
+        client_ip = "Unknown IP"
+    
+    if client_ip in ["::1", "127.0.0.1"]:
+        client_ip = "127.0.0.1 (Local)"
+
+    # 2. User-Agent device & browser parsing
+    ua = request.headers.get("user-agent", "")
+    device = "Desktop"
+    browser = "Browser"
+
+    ua_lower = ua.lower()
+    if "android" in ua_lower:
+        device = "Android"
+    elif "iphone" in ua_lower:
+        device = "iPhone"
+    elif "ipad" in ua_lower:
+        device = "iPad"
+    elif "windows" in ua_lower:
+        device = "Windows"
+    elif "macintosh" in ua_lower or "mac os" in ua_lower:
+        device = "Mac"
+    elif "linux" in ua_lower:
+        device = "Linux"
+
+    if "edg/" in ua_lower:
+        browser = "Edge"
+    elif "chrome/" in ua_lower:
+        browser = "Chrome"
+    elif "firefox/" in ua_lower:
+        browser = "Firefox"
+    elif "safari/" in ua_lower and "chrome" not in ua_lower:
+        browser = "Safari"
+    elif "opera" in ua_lower or "opr/" in ua_lower:
+        browser = "Opera"
+    
+    device_browser = f"{device} • {browser}"
+    return client_ip, device_browser
+
+def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0, ip_address: str = "", device_browser: str = ""):
     """Logs user login, logout, new admission, and fee payment events for audit trails"""
     try:
         now = get_ist_now()
@@ -222,10 +280,20 @@ def record_activity_log(session_id: str, username: str, full_name: str, role: st
         date_str = now.strftime("%Y-%m-%d")
         conn = get_db()
         cursor = conn.cursor()
+
+        # If ip_address or device_browser not supplied, try to inherit from session login log
+        if (not ip_address or not device_browser) and session_id:
+            existing = cursor.execute("SELECT ip_address, device_browser FROM user_activity_logs WHERE session_id = ? AND ip_address != '' LIMIT 1", (session_id,)).fetchone()
+            if existing:
+                if not ip_address:
+                    ip_address = existing['ip_address']
+                if not device_browser:
+                    device_browser = existing['device_browser']
+
         cursor.execute("""
-            INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (session_id, username, full_name, role, branch or "Branch 1", action_type, action_details, entity_id, amount, ts, date_str))
+            INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only, ip_address, device_browser)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (session_id, username, full_name, role, branch or "Branch 1", action_type, action_details, entity_id, amount, ts, date_str, ip_address or "", device_browser or ""))
         conn.commit()
         conn.close()
 
@@ -242,13 +310,61 @@ def record_activity_log(session_id: str, username: str, full_name: str, role: st
                 "entity_id": entity_id,
                 "amount": amount,
                 "timestamp": ts,
-                "date_only": date_str
+                "date_only": date_str,
+                "ip_address": ip_address or "",
+                "device_browser": device_browser or ""
             }
             cloud_sync.queue_transaction_locally('activity_log', f"{session_id}_{ts}", 'INSERT', log_payload, branch or "Branch 1")
         except Exception:
             pass
     except Exception as e:
         print(f"[AUDIT LOG ERROR]: {e}")
+
+# ----------------- HTTP VISITOR & IP ACCESS TRACKING MIDDLEWARE -----------------
+EXCLUDED_STATIC_EXTS = ('.js', '.css', '.png', '.jpg', '.jpeg', '.svg', '.ico', '.woff', '.woff2', '.map', '.ttf', '.webmanifest')
+EXCLUDED_LOG_PATHS = ('/api/auth/session-check', '/api/cloud-sync/status')
+
+@app.middleware("http")
+async def track_ip_access_middleware(request: Request, call_next):
+    response = await call_next(request)
+    
+    path = request.url.path
+    if request.method == "OPTIONS" or path in EXCLUDED_LOG_PATHS or path.startswith("/static/"):
+        return response
+    if any(path.endswith(ext) for ext in EXCLUDED_STATIC_EXTS):
+        return response
+
+    try:
+        ip_addr, dev_browser = parse_client_info(request)
+        now = get_ist_now()
+        ts = now.strftime("%Y-%m-%d %H:%M:%S")
+        date_str = now.strftime("%Y-%m-%d")
+        
+        # User detection from query params
+        username = request.query_params.get("operator_user") or request.query_params.get("cashier_user") or request.query_params.get("username")
+        if not username:
+            username = "Visitor / Public"
+
+        status_code = response.status_code
+        
+        def _save_ip_log():
+            try:
+                conn = get_db()
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO ip_access_logs (ip_address, endpoint, method, device_browser, username, status_code, timestamp, date_only)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (ip_addr, path, request.method, dev_browser, username, status_code, ts, date_str))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+        
+        threading.Thread(target=_save_ip_log, daemon=True).start()
+    except Exception:
+        pass
+
+    return response
 
 # ----------------- AUTHENTICATION & OTP APIS -----------------
 
@@ -340,7 +456,8 @@ def check_auth_method(data: RequestOtpRequest):
     }
 
 @app.post("/api/auth/verify-otp")
-def verify_otp(data: VerifyOtpRequest):
+def verify_otp(data: VerifyOtpRequest, request: Request):
+    ip_addr, dev_browser = parse_client_info(request)
     raw_input = data.mobile.strip().replace(" ", "").replace("-", "")
     is_sa = raw_input.upper().startswith("SA")
     mobile = raw_input[2:] if is_sa else raw_input
@@ -367,7 +484,11 @@ def verify_otp(data: VerifyOtpRequest):
     if user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
         totp = pyotp.TOTP(user['totp_secret'].strip())
         if totp.verify(otp_input, valid_window=1):
+            sess_token = secrets.token_hex(16)
+            cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
+            conn.commit()
             conn.close()
+
             # Record audit login event
             sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
             record_activity_log(
@@ -377,13 +498,28 @@ def verify_otp(data: VerifyOtpRequest):
                 role=user['role'],
                 branch="Branch 1",
                 action_type="LOGIN",
-                action_details="Staff logged in via Authenticator OTP"
+                action_details="Staff logged in via Authenticator OTP",
+                ip_address=ip_addr,
+                device_browser=dev_browser
             )
+
+            # Sync session_token to cloud
+            try:
+                cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
+                cfg = cloud_sync.get_sync_config()
+                if cfg.get("enabled"):
+                    cloud_sync.push_local_outbox_to_cloud()
+            except Exception:
+                pass
+
+            user_dict = dict_from_row(user)
+            user_dict['session_token'] = sess_token
             return {
                 "status": "success",
                 "method": "authenticator",
                 "session_id": sess_id,
-                "user": dict_from_row(user)
+                "session_token": sess_token,
+                "user": user_dict
             }
 
     # 2. Check traditional OTP table (Fallback or setup mode)
@@ -402,8 +538,10 @@ def verify_otp(data: VerifyOtpRequest):
         conn.close()
         raise HTTPException(status_code=401, detail="This code has expired. Please check your Authenticator app.")
 
-    # Mark OTP as used
+    # Mark OTP as used and generate session_token
+    sess_token = secrets.token_hex(16)
     cursor.execute("UPDATE otps SET is_used = 1 WHERE id = ?", (otp_row['id'],))
+    cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
     conn.commit()
     conn.close()
 
@@ -416,28 +554,50 @@ def verify_otp(data: VerifyOtpRequest):
         role=user['role'],
         branch="Branch 1",
         action_type="LOGIN",
-        action_details="Staff logged in via SMS/Fallback OTP"
+        action_details="Staff logged in via SMS/Fallback OTP",
+        ip_address=ip_addr,
+        device_browser=dev_browser
     )
+
+    # Sync session_token to cloud
+    try:
+        cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    user_dict = dict_from_row(user)
+    user_dict['session_token'] = sess_token
 
     return {
         "status": "success",
         "method": "otp",
         "session_id": sess_id,
-        "user": dict_from_row(user)
+        "session_token": sess_token,
+        "user": user_dict
     }
 
 @app.post("/api/auth/login")
-def login(creds: LoginRequest):
+def login(creds: LoginRequest, request: Request):
+    ip_addr, dev_browser = parse_client_info(request)
     conn = get_db()
-    user = conn.execute("""
+    cursor = conn.cursor()
+    user = cursor.execute("""
         SELECT id, username, full_name, role, phone, is_active 
         FROM users 
         WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
     """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
-    conn.close()
 
     if not user:
+        conn.close()
         raise HTTPException(status_code=401, detail="Invalid credentials or account blocked.")
+
+    sess_token = secrets.token_hex(16)
+    cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
+    conn.commit()
+    conn.close()
 
     sess_id = (creds.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
     record_activity_log(
@@ -447,18 +607,33 @@ def login(creds: LoginRequest):
         role=user['role'],
         branch="Branch 1",
         action_type="LOGIN",
-        action_details="User logged in via Password"
+        action_details="User logged in via Password",
+        ip_address=ip_addr,
+        device_browser=dev_browser
     )
+
+    try:
+        cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    user_dict = dict_from_row(user)
+    user_dict['session_token'] = sess_token
 
     return {
         "status": "success",
         "session_id": sess_id,
-        "user": dict_from_row(user)
+        "session_token": sess_token,
+        "user": user_dict
     }
 
 @app.post("/api/auth/session-log")
-def log_session_event(req: UserSessionLogRequest):
+def log_session_event(req: UserSessionLogRequest, request: Request):
     """Records client-triggered session events like LOGOUT or AUTO_TIMEOUT"""
+    ip_addr, dev_browser = parse_client_info(request)
     conn = get_db()
     user = conn.execute("SELECT id, username, full_name, role FROM users WHERE username = ?", (req.username.strip(),)).fetchone()
     conn.close()
@@ -473,10 +648,44 @@ def log_session_event(req: UserSessionLogRequest):
         role=role,
         branch="Branch 1",
         action_type=req.action_type.strip(),
-        action_details=req.action_details.strip() or f"User ended session ({req.action_type})"
+        action_details=req.action_details.strip() or f"User ended session ({req.action_type})",
+        ip_address=ip_addr,
+        device_browser=dev_browser
     )
 
+    # Invalidate session_token on logout
+    try:
+        conn = get_db()
+        conn.execute("UPDATE users SET session_token = '' WHERE username = ?", (req.username.strip(),))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
     return {"status": "success"}
+
+@app.get("/api/auth/session-check")
+def check_user_session(username: str = Query(...), token: str = Query(...)):
+    """
+    Called by frontdesk client every 5-10s to check if Admin forced logout on this session.
+    Returns {"active": True} or {"active": False, "reason": "Terminated by Admin"}.
+    """
+    conn = get_db()
+    user = conn.execute("SELECT id, session_token, is_active FROM users WHERE username = ?", (username.strip(),)).fetchone()
+    conn.close()
+
+    if not user:
+        return {"active": False, "reason": "User not found"}
+    if not user['is_active']:
+        return {"active": False, "reason": "Your account has been blocked by Admin"}
+    
+    # If the user has a session_token and the client token doesn't match (or token was cleared)
+    if user['session_token'] and token.strip() and user['session_token'] != token.strip():
+        return {"active": False, "reason": "Your session has been logged out by Admin / Management"}
+    if not user['session_token']:
+        return {"active": False, "reason": "Your session has been logged out by Admin / Management"}
+
+    return {"active": True}
 
 @app.get("/api/audit-logs")
 def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...)):
@@ -507,7 +716,8 @@ def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...
     if op_role == 'T1':
         # Super Admin sees all logs (T1, T2, T3)
         rows = cursor.execute("""
-            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only
+            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only,
+                   COALESCE(ip_address, '') as ip_address, COALESCE(device_browser, '') as device_browser
             FROM user_activity_logs
             WHERE date_only = ?
             ORDER BY timestamp DESC
@@ -515,7 +725,8 @@ def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...
     else:
         # T2 Admin sees T3 Cashiers only
         rows = cursor.execute("""
-            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only
+            SELECT id, session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only,
+                   COALESCE(ip_address, '') as ip_address, COALESCE(device_browser, '') as device_browser
             FROM user_activity_logs
             WHERE date_only = ? AND role = 'T3'
             ORDER BY timestamp DESC
@@ -536,17 +747,28 @@ def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...
                 "full_name": log['full_name'],
                 "role": log['role'],
                 "branch": log['branch'],
+                "ip_address": log.get('ip_address', ''),
+                "device_browser": log.get('device_browser', ''),
                 "login_time": None,
                 "logout_time": None,
                 "logout_type": None,
                 "total_actions": 0,
                 "actions": []
             }
+        else:
+            if not sessions_map[s_id].get('ip_address') and log.get('ip_address'):
+                sessions_map[s_id]['ip_address'] = log['ip_address']
+            if not sessions_map[s_id].get('device_browser') and log.get('device_browser'):
+                sessions_map[s_id]['device_browser'] = log['device_browser']
         
         entry = sessions_map[s_id]
         if log['action_type'] == 'LOGIN':
             if not entry['login_time'] or log['timestamp'] < entry['login_time']:
                 entry['login_time'] = log['timestamp']
+            if log.get('ip_address'):
+                entry['ip_address'] = log['ip_address']
+            if log.get('device_browser'):
+                entry['device_browser'] = log['device_browser']
         elif log['action_type'] in ['LOGOUT', 'AUTO_TIMEOUT']:
             entry['logout_time'] = log['timestamp']
             entry['logout_type'] = log['action_type']
@@ -567,6 +789,54 @@ def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...
         "total_logs": len(logs),
         "sessions": session_list,
         "raw_logs": logs
+    }
+
+# ----------------- VISITOR & IP ACCESS TRACKER APIS (OPTION 2) -----------------
+
+@app.get("/api/security/ip-logs")
+def get_ip_access_logs(target_date: str = Query(...), operator_user: str = Query(...)):
+    """
+    Returns visitor & IP access logs for target_date.
+    Visible ONLY to T1 (Super Admin) and T2 (Admin).
+    T3 (Cashiers) is strictly 403 Forbidden.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify operator role
+    op = cursor.execute("SELECT id, username, role FROM users WHERE username = ?", (operator_user.strip(),)).fetchone()
+    if not op or op['role'] not in ['T1', 'T2']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Access denied. Visitor & IP logs are restricted to Administrators.")
+
+    clean_date = target_date.strip()
+    
+    rows = cursor.execute("""
+        SELECT id, ip_address, endpoint, method, COALESCE(device_browser, '') as device_browser,
+               COALESCE(username, 'Visitor / Public') as username, status_code, timestamp, date_only
+        FROM ip_access_logs
+        WHERE date_only = ?
+        ORDER BY id DESC
+        LIMIT 1000
+    """, (clean_date,)).fetchall()
+    
+    logs = [dict_from_row(r) for r in rows]
+    
+    unique_ips = len(set(log['ip_address'] for log in logs))
+    total_visits = len(logs)
+    
+    desktop_count = sum(1 for log in logs if any(d in (log.get('device_browser') or '') for d in ['Windows', 'Mac', 'Linux', 'Desktop']))
+    mobile_count = sum(1 for log in logs if any(d in (log.get('device_browser') or '') for d in ['Android', 'iPhone', 'iPad']))
+
+    conn.close()
+    return {
+        "status": "success",
+        "target_date": clean_date,
+        "total_visits": total_visits,
+        "unique_ips": unique_ips,
+        "desktop_count": desktop_count,
+        "mobile_count": mobile_count,
+        "logs": logs
     }
 
 # ----------------- AUTHENTICATOR (TOTP) SETUP APIS -----------------
@@ -766,6 +1036,64 @@ def toggle_staff_status(data: StaffStatusToggle):
     action_label = "Unblocked / Active" if data.is_active == 1 else "Blocked"
     return {"status": "success", "message": f"User access status updated to: {action_label}"}
 
+@app.post("/api/staff/force-logout")
+def force_logout_staff(data: StaffForceLogoutRequest, request: Request):
+    """
+    Terminates active session of a T3 Cashier from Admin or Super Admin login.
+    Invalidates their session_token and logs a FORCED_LOGOUT event into audit logs.
+    """
+    ip_addr, dev_browser = parse_client_info(request)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Check requester authority
+    op = cursor.execute("SELECT id, username, role FROM users WHERE username = ?", (data.operator_user.strip(),)).fetchone()
+    if not op or op['role'] not in ['T1', 'T2']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Only Admin or Super Admin can force logout staff.")
+
+    target = cursor.execute("SELECT id, username, full_name, role FROM users WHERE id = ?", (data.user_id,)).fetchone()
+    if not target:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Staff user not found.")
+
+    if target['role'] not in ['T3']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Only cashier / front desk (T3) sessions can be remotely logged out.")
+
+    # Invalidate session token
+    cursor.execute("UPDATE users SET session_token = '' WHERE id = ?", (data.user_id,))
+    conn.commit()
+    conn.close()
+
+    # Log forced logout into audit log
+    sess_id = f"force_logout_{int(get_ist_now().timestamp())}"
+    record_activity_log(
+        session_id=sess_id,
+        username=target['username'],
+        full_name=target['full_name'],
+        role=target['role'],
+        branch="Branch 1",
+        action_type="LOGOUT",
+        action_details=f"Session forcefully terminated by {op['role']} ({data.operator_user})",
+        ip_address=ip_addr,
+        device_browser=dev_browser
+    )
+
+    # Sync to Turso Cloud
+    try:
+        cloud_sync.queue_transaction_locally('user_session', target['username'], 'UPDATE', {'username': target['username'], 'session_token': ''}, "Branch 1")
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "message": f"Successfully logged out active session for {target['full_name']} ({target['username']})."
+    }
+
 # ----------------- FEE STRUCTURE APIS (T1 & T2) -----------------
 
 @app.get("/api/fee-structures")
@@ -815,7 +1143,7 @@ def calculate_fee(class_name: str = Query(...), student_type: str = Query(...)):
     return dict_from_row(row)
 
 @app.post("/api/students/admit")
-def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3"), operator_user: str = Query("frontdesk")):
+def admit_student(req: StudentAdmissionRequest, request: Request, operator_role: str = Query("T3"), operator_user: str = Query("frontdesk")):
     conn = get_db()
 
     # Check if admission number exists
@@ -971,6 +1299,7 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
 
     # Record audit log for New Admission
     try:
+        ip_addr, dev_browser = parse_client_info(request)
         sess_id = (req.session_id or f"sess_{operator_user}").strip()
         record_activity_log(
             session_id=sess_id,
@@ -981,7 +1310,9 @@ def admit_student(req: StudentAdmissionRequest, operator_role: str = Query("T3")
             action_type="NEW_ADMISSION",
             action_details=f"Admitted student {req.student_name.strip()} ({req.class_name}-{req.section})",
             entity_id=req.admission_no.strip(),
-            amount=req.initial_payment_amount
+            amount=req.initial_payment_amount,
+            ip_address=ip_addr,
+            device_browser=dev_browser
         )
     except Exception as e:
         print(f"[AUDIT LOG ERROR ADMISSION]: {e}")
@@ -1367,7 +1698,7 @@ def get_student_statement(student_id: int):
     }
 
 @app.post("/api/payments/collect")
-def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontdesk")):
+def collect_payment(req: PaymentCreateRequest, request: Request, cashier_user: str = Query("frontdesk")):
     conn = get_db()
     cursor = conn.cursor()
 
@@ -1465,6 +1796,7 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
 
     # Record audit log for Fee Payment
     try:
+        ip_addr, dev_browser = parse_client_info(request)
         sess_id = (req.session_id or f"sess_{cashier_user}").strip()
         record_activity_log(
             session_id=sess_id,
@@ -1475,7 +1807,9 @@ def collect_payment(req: PaymentCreateRequest, cashier_user: str = Query("frontd
             action_type="FEE_PAYMENT",
             action_details=f"Collected Rs. {req.amount_paid:,.0f} ({label}) for {student['student_name']} ({student['admission_no']}) via {req.payment_mode}",
             entity_id=receipt_no,
-            amount=req.amount_paid
+            amount=req.amount_paid,
+            ip_address=ip_addr,
+            device_browser=dev_browser
         )
     except Exception as e:
         print(f"[AUDIT LOG ERROR PAYMENT]: {e}")

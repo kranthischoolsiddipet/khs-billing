@@ -67,14 +67,22 @@ def pull_cloud_data_into_local_db():
 
     try:
         # 1. Pull Users
-        ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret FROM users;"}], cfg['db_url'], cfg['auth_token'])
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token FROM users;"}], cfg['db_url'], cfg['auth_token'])
         if ok and res.get('results'):
             rows = res['results'][0]['response']['result']['rows']
             for r in rows:
                 vals = [c.get('value') for c in r]
                 cur.execute("""
-                    INSERT OR REPLACE INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(username) DO UPDATE SET
+                        password_hash=excluded.password_hash,
+                        full_name=excluded.full_name,
+                        role=excluded.role,
+                        phone=excluded.phone,
+                        is_active=excluded.is_active,
+                        totp_secret=excluded.totp_secret,
+                        session_token=excluded.session_token;
                 """, vals)
 
         # 2. Pull Fee Structures
@@ -125,15 +133,15 @@ def pull_cloud_data_into_local_db():
 
         # 5. Pull User Activity Logs
         try:
-            ok, res = execute_remote_turso_queries([{"sql": "SELECT session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only FROM user_activity_logs;"}], cfg['db_url'], cfg['auth_token'])
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only, COALESCE(ip_address, ''), COALESCE(device_browser, '') FROM user_activity_logs;"}], cfg['db_url'], cfg['auth_token'])
             if ok and res.get('results'):
                 rows = res['results'][0]['response']['result']['rows']
                 for r in rows:
                     vals = [c.get('value') for c in r]
                     # Avoid duplicate activity logs
                     cur.execute("""
-                        INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only)
-                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        INSERT INTO user_activity_logs (session_id, username, full_name, role, branch, action_type, action_details, entity_id, amount, timestamp, date_only, ip_address, device_browser)
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                         WHERE NOT EXISTS (
                             SELECT 1 FROM user_activity_logs 
                             WHERE session_id = ? AND timestamp = ? AND action_type = ?
@@ -141,6 +149,24 @@ def pull_cloud_data_into_local_db():
                     """, vals + [vals[0], vals[9], vals[5]])
         except Exception as e_act:
             print(f"[PULL ACTIVITY LOGS NOTICE]: {e_act}")
+
+        # 6. Pull IP Access Logs
+        try:
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT ip_address, endpoint, method, COALESCE(device_browser, ''), COALESCE(username, 'Visitor / Public'), status_code, timestamp, date_only FROM ip_access_logs ORDER BY id DESC LIMIT 500;"}], cfg['db_url'], cfg['auth_token'])
+            if ok and res.get('results'):
+                rows = res['results'][0]['response']['result']['rows']
+                for r in rows:
+                    vals = [c.get('value') for c in r]
+                    cur.execute("""
+                        INSERT INTO ip_access_logs (ip_address, endpoint, method, device_browser, username, status_code, timestamp, date_only)
+                        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM ip_access_logs 
+                            WHERE ip_address = ? AND timestamp = ? AND endpoint = ?
+                        )
+                    """, vals + [vals[0], vals[6], vals[1]])
+        except Exception as e_ip:
+            print(f"[PULL IP LOGS NOTICE]: {e_ip}")
 
         conn.commit()
         conn.close()
@@ -300,9 +326,28 @@ def init_remote_schema_if_needed(db_url: str, auth_token: str):
                 entity_id TEXT,
                 amount REAL DEFAULT 0.0,
                 timestamp TEXT NOT NULL,
+                date_only TEXT NOT NULL,
+                ip_address TEXT DEFAULT '',
+                device_browser TEXT DEFAULT ''
+            );
+        """},
+        {"sql": "ALTER TABLE user_activity_logs ADD COLUMN ip_address TEXT DEFAULT '';"},
+        {"sql": "ALTER TABLE user_activity_logs ADD COLUMN device_browser TEXT DEFAULT '';"},
+        {"sql": """
+            CREATE TABLE IF NOT EXISTS ip_access_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                method TEXT NOT NULL,
+                device_browser TEXT DEFAULT '',
+                username TEXT DEFAULT 'Visitor / Public',
+                status_code INTEGER DEFAULT 200,
+                timestamp TEXT NOT NULL,
                 date_only TEXT NOT NULL
             );
-        """}
+        """},
+        {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_date ON ip_access_logs(date_only);"},
+        {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);"}
     ]
     return execute_remote_turso_queries(tables_sql, db_url, auth_token)
 
@@ -402,15 +447,32 @@ def push_local_outbox_to_cloud():
                 "sql": """
                     INSERT INTO user_activity_logs (
                         session_id, username, full_name, role, branch,
-                        action_type, action_details, entity_id, amount, timestamp, date_only
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        action_type, action_details, entity_id, amount, timestamp, date_only,
+                        ip_address, device_browser
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 "args": [
                     data.get('session_id', ''), data.get('username', ''), data.get('full_name', ''),
                     data.get('role', 'T3'), data.get('branch', 'Branch 1'),
                     data.get('action_type', ''), data.get('action_details', ''),
                     data.get('entity_id', ''), float(data.get('amount', 0.0)),
-                    data.get('timestamp', ''), data.get('date_only', '')
+                    data.get('timestamp', ''), data.get('date_only', ''),
+                    data.get('ip_address', ''), data.get('device_browser', '')
+                ]
+            })
+
+        elif etype == 'ip_access_log' and op == 'INSERT':
+            queries.append({
+                "sql": """
+                    INSERT INTO ip_access_logs (
+                        ip_address, endpoint, method, device_browser,
+                        username, status_code, timestamp, date_only
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                "args": [
+                    data.get('ip_address', ''), data.get('endpoint', ''), data.get('method', 'GET'),
+                    data.get('device_browser', ''), data.get('username', 'Visitor / Public'),
+                    int(data.get('status_code', 200)), data.get('timestamp', ''), data.get('date_only', '')
                 ]
             })
 

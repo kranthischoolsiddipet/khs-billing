@@ -163,6 +163,12 @@
           <i class="fa-solid fa-clock-rotate-left w-4 text-center text-indigo-600"></i>
           <span>Staff Session Logs</span>
         </button>
+
+        <!-- 11. Visitor & IP Access Tracker (Admin & Super Admin) -->
+        <button onclick="switchTab('iplogs')" id="tab-iplogs" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-network-wired w-4 text-center text-indigo-600"></i>
+          <span>Visitor & IP Tracker</span>
+        </button>
       </div>
     </aside>
 
@@ -439,11 +445,13 @@
               </div>
 
               <div>
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">Section</label>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Section (Optional)</label>
                 <select id="admSection" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white">
-                  <option value="A">Section A</option>
+                  <option value="">No Section Assigned</option>
+                  <option value="A" selected>Section A</option>
                   <option value="B">Section B</option>
                   <option value="C">Section C</option>
+                  <option value="D">Section D</option>
                 </select>
               </div>
 
@@ -1205,6 +1213,102 @@
       </div>
     </section>
 
+    <!-- ================= SECTION 10: VISITOR & IP ACCESS TRACKER (OPTION 2) ================= -->
+    <section id="sec-iplogs" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header & Controls -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="p-2 rounded-lg bg-indigo-50 text-indigo-600">
+                <i class="fa-solid fa-network-wired text-lg"></i>
+              </span>
+              <div>
+                <h2 class="text-base font-extrabold text-slate-900">Visitor & IP Access Tracker</h2>
+                <p class="text-xs text-slate-500" id="ipTrackerSubtitle">Monitor all incoming portal visits, IP addresses, devices, and browser activity</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Date Filter Picker & Search Box -->
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center space-x-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
+              <span class="text-xs font-bold text-slate-600 flex items-center">
+                <i class="fa-regular fa-calendar mr-1.5 text-indigo-600"></i> Date:
+              </span>
+              <input type="date" id="ipDatePicker" class="bg-white border border-slate-300 text-xs font-bold rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="loadIpTrackerLogs()">
+              <button onclick="loadIpTrackerLogs()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-xs transition flex items-center">
+                <i class="fa-solid fa-rotate mr-1.5"></i> Refresh
+              </button>
+            </div>
+            
+            <input type="text" id="ipFilterSearch" placeholder="Filter by IP, page or user..." onkeyup="filterIpLogsTable()" class="bg-slate-50 border border-slate-200 text-xs rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-52">
+          </div>
+        </div>
+
+        <!-- Summary KPI Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Access Requests</div>
+            <div class="text-2xl font-black text-slate-800 mt-1" id="ipTotalVisits">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Visits & endpoints logged</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Unique IP Addresses</div>
+            <div class="text-2xl font-black text-indigo-600 mt-1" id="ipUniqueCount">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Distinct devices/networks</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Desktop Access</div>
+            <div class="text-2xl font-black text-blue-600 mt-1" id="ipDesktopCount">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Windows, Mac, Linux</div>
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mobile Access</div>
+            <div class="text-2xl font-black text-emerald-600 mt-1" id="ipMobileCount">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Android, iPhone, iPad</div>
+          </div>
+        </div>
+
+        <!-- Access Log Table -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-extrabold uppercase text-slate-500 tracking-wider">
+              <i class="fa-solid fa-list text-indigo-500 mr-1"></i> Incoming Visitor Access Feed
+            </h3>
+            <span class="text-xs text-slate-400" id="ipTimestampNotice"></span>
+          </div>
+
+          <div class="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+            <div class="overflow-x-auto max-h-[550px] overflow-y-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase text-[10px] tracking-wider sticky top-0 z-10">
+                  <tr>
+                    <th class="p-3">Time (IST)</th>
+                    <th class="p-3">IP Address</th>
+                    <th class="p-3">Device & Browser</th>
+                    <th class="p-3">Visited Page / Endpoint</th>
+                    <th class="p-3">User / Identity</th>
+                    <th class="p-3 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody id="ipLogsTableBody" class="divide-y divide-slate-100 font-medium text-slate-700">
+                  <tr>
+                    <td colspan="6" class="p-8 text-center text-slate-400">
+                      <i class="fa-solid fa-spinner fa-spin text-lg mb-2 text-indigo-600"></i><br>
+                      Loading IP tracker logs...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
     </div> <!-- Close Main Content Area -->
   </main>
 
@@ -1398,6 +1502,10 @@
             <input type="text" id="reqEditStudentName" required oninput="this.value = this.value.toUpperCase()" class="w-full px-3 py-1.5 text-xs font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
           </div>
           <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Roll No (Optional)</label>
+            <input type="text" id="reqEditRollNo" placeholder="e.g. 15 or 10A" class="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
             <label class="block text-[11px] font-bold text-slate-700 mb-1">Class *</label>
             <select id="reqEditClass" class="w-full px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
               <option value="PP1">PP1</option>
@@ -1415,8 +1523,8 @@
             </select>
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1">Section</label>
-            <input type="text" id="reqEditSection" maxlength="2" oninput="this.value = this.value.toUpperCase()" class="w-full px-3 py-1.5 text-xs font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Section (Optional)</label>
+            <input type="text" id="reqEditSection" placeholder="e.g. A, B or leave blank" maxlength="2" oninput="this.value = this.value.toUpperCase()" class="w-full px-3 py-1.5 text-xs font-bold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
           </div>
           <div>
             <label class="block text-[11px] font-bold text-slate-700 mb-1">Category</label>
@@ -1429,7 +1537,7 @@
             <label class="block text-[11px] font-bold text-slate-700 mb-1">Parent Full Name *</label>
             <input type="text" id="reqEditParentName" required class="w-full px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
           </div>
-          <div>
+          <div class="col-span-2">
             <label class="block text-[11px] font-bold text-slate-700 mb-1">Parent Mobile (10-Digit) *</label>
             <input type="tel" id="reqEditParentPhone" required maxlength="10" minlength="10" pattern="[0-9]{10}" oninput="this.value = this.value.replace(/[^0-9]/g, '').slice(0, 10)" class="w-full px-3 py-1.5 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
           </div>
