@@ -77,7 +77,7 @@ def start_sync_worker():
         cfg = cloud_sync.get_sync_config()
         if cfg.get("enabled"):
             print("[STARTUP] Hydrating database from Turso Cloud...")
-            cloud_sync.pull_cloud_data_into_local_db()
+            cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
     except Exception as e:
         print(f"[STARTUP HYDRATION ERROR]: {e}")
 
@@ -544,12 +544,10 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
             )
             log_meaningful_ip_access(ip_addr, "Staff Login (Authenticator)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
-            # Sync session_token to cloud
+            # Sync session_token to cloud immediately
             try:
+                cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
                 cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
-                cfg = cloud_sync.get_sync_config()
-                if cfg.get("enabled"):
-                    cloud_sync.push_local_outbox_to_cloud()
             except Exception:
                 pass
 
@@ -603,12 +601,10 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
     )
     log_meaningful_ip_access(ip_addr, "Staff Login (SMS OTP)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
-    # Sync session_token to cloud
+    # Sync session_token to cloud immediately
     try:
+        cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
         cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
-        cfg = cloud_sync.get_sync_config()
-        if cfg.get("enabled"):
-            cloud_sync.push_local_outbox_to_cloud()
     except Exception:
         pass
 
@@ -659,10 +655,8 @@ def login(creds: LoginRequest, request: Request):
     log_meaningful_ip_access(ip_addr, "Staff / Admin Login", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
     try:
+        cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
         cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
-        cfg = cloud_sync.get_sync_config()
-        if cfg.get("enabled"):
-            cloud_sync.push_local_outbox_to_cloud()
     except Exception:
         pass
 
@@ -707,6 +701,7 @@ def log_session_event(req: UserSessionLogRequest, request: Request):
         conn.execute("UPDATE users SET session_token = '' WHERE username = ?", (req.username.strip(),))
         conn.commit()
         conn.close()
+        cloud_sync.sync_user_session_token_direct(req.username.strip(), "")
     except Exception:
         pass
 
@@ -1201,12 +1196,10 @@ def force_logout_staff(data: StaffForceLogoutRequest, request: Request):
     )
     log_meaningful_ip_access(ip_addr, f"Cashier Force-Terminated (by {data.operator_user})", dev_browser, f"{target['full_name']} ({target['username']})", 200, "POST")
 
-    # Sync to Turso Cloud
+    # Sync to Turso Cloud immediately
     try:
+        cloud_sync.sync_user_session_token_direct(target['username'], '')
         cloud_sync.queue_transaction_locally('user_session', target['username'], 'UPDATE', {'username': target['username'], 'session_token': ''}, "Branch 1")
-        cfg = cloud_sync.get_sync_config()
-        if cfg.get("enabled"):
-            cloud_sync.push_local_outbox_to_cloud()
     except Exception:
         pass
 
@@ -2757,7 +2750,7 @@ def test_cloud_sync_connection(operator_user: str = Query("admin")):
 @app.post("/api/cloud-sync/sync-now")
 def trigger_cloud_sync_now(operator_user: str = Query("admin")):
     push_res = cloud_sync.push_local_outbox_to_cloud()
-    pull_ok, pull_msg = cloud_sync.pull_cloud_data_into_local_db()
+    pull_ok, pull_msg = cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
     return {
         "status": "success",
         "push": push_res,

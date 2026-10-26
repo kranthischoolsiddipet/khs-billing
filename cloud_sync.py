@@ -53,10 +53,10 @@ def normalize_turso_url(url: str) -> str:
         u = u + "/v2/pipeline"
     return u
 
-def pull_cloud_data_into_local_db():
+def pull_cloud_data_into_local_db(sync_users: bool = False):
     """
-    Pulls users, fee_structures, students, and payments from Turso Cloud Database into local SQLite.
-    Ensures that when a cloud instance starts up (like on Render), it immediately hydrates with all records!
+    Pulls fee_structures, students, payments, and logs from Turso Cloud Database into local SQLite.
+    If sync_users is False (default periodic cycle), user session_tokens are NOT overwritten so active logins are preserved!
     """
     cfg = get_sync_config()
     if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
@@ -66,24 +66,24 @@ def pull_cloud_data_into_local_db():
     cur = conn.cursor()
 
     try:
-        # 1. Pull Users
-        ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token FROM users;"}], cfg['db_url'], cfg['auth_token'])
-        if ok and res.get('results'):
-            rows = res['results'][0]['response']['result']['rows']
-            for r in rows:
-                vals = [c.get('value') for c in r]
-                cur.execute("""
-                    INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(username) DO UPDATE SET
-                        password_hash=excluded.password_hash,
-                        full_name=excluded.full_name,
-                        role=excluded.role,
-                        phone=excluded.phone,
-                        is_active=excluded.is_active,
-                        totp_secret=excluded.totp_secret,
-                        session_token=excluded.session_token;
-                """, vals)
+        # 1. Pull Users (Only on initial startup or explicit sync, never during background 20s loop)
+        if sync_users:
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token FROM users;"}], cfg['db_url'], cfg['auth_token'])
+            if ok and res.get('results'):
+                rows = res['results'][0]['response']['result']['rows']
+                for r in rows:
+                    vals = [c.get('value') for c in r]
+                    cur.execute("""
+                        INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(username) DO UPDATE SET
+                            password_hash=excluded.password_hash,
+                            full_name=excluded.full_name,
+                            role=excluded.role,
+                            phone=excluded.phone,
+                            is_active=excluded.is_active,
+                            totp_secret=excluded.totp_secret;
+                    """, vals)
 
         # 2. Pull Fee Structures
         ok, res = execute_remote_turso_queries([{"sql": "SELECT class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee, residential_fee, default_transport_fee, total_base_fee FROM fee_structures;"}], cfg['db_url'], cfg['auth_token'])
@@ -369,6 +369,20 @@ def queue_transaction_locally(entity_type: str, entity_id: str, operation: str, 
         print(f"[SYNC QUEUE ERROR]: {e}")
         return False
 
+def sync_user_session_token_direct(username: str, session_token: str):
+    """Immediately updates user's session_token on Turso Cloud without waiting for outbox queue"""
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        sql = "UPDATE users SET session_token = ? WHERE username = ?;"
+        args = [session_token.strip(), username.strip()]
+        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        return ok
+    except Exception as e:
+        print(f"[SYNC TOKEN DIRECT ERROR]: {e}")
+        return False
+
 def push_local_outbox_to_cloud():
     """
     Pushes pending rows from sync_queue to Cloud Database via HTTP API.
@@ -476,6 +490,12 @@ def push_local_outbox_to_cloud():
                     data.get('device_browser', ''), data.get('username', 'Visitor / Public'),
                     int(data.get('status_code', 200)), data.get('timestamp', ''), data.get('date_only', '')
                 ]
+            })
+
+        elif etype == 'user_session' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE users SET session_token = ? WHERE username = ?;",
+                "args": [data.get('session_token', ''), data.get('username', '')]
             })
 
     success, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])
