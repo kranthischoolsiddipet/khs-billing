@@ -454,6 +454,19 @@ def request_otp(data: RequestOtpRequest):
             user = cursor.execute("SELECT * FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
 
     if not user:
+        # Self-healing safeguard: if user is not in local SQLite, pull from Turso cloud on the fly!
+        try:
+            cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
+            if is_sa:
+                user = cursor.execute("SELECT * FROM users WHERE username = ? OR (phone = ? AND role = 'T1')", (f"SA{mobile}", mobile)).fetchone()
+            else:
+                user = cursor.execute("SELECT * FROM users WHERE username = ? OR (phone = ? AND role = 'T3')", (mobile, mobile)).fetchone()
+                if not user:
+                    user = cursor.execute("SELECT * FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
+        except Exception:
+            pass
+
+    if not user:
         conn.close()
         raise HTTPException(status_code=403, detail=f"No account registered for {raw_input}. Please contact School Admin.")
 
@@ -505,6 +518,19 @@ def check_auth_method(data: RequestOtpRequest):
         if not user:
             user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
     conn.close()
+
+    if not user:
+        # Self-healing safeguard: if user is not in local SQLite (e.g. freshly started cloud container), pull from Turso cloud on the fly!
+        try:
+            cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
+            if is_sa:
+                user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR (phone = ? AND role = 'T1')", (f"SA{mobile}", mobile)).fetchone()
+            else:
+                user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR (phone = ? AND role = 'T3')", (mobile, mobile)).fetchone()
+                if not user:
+                    user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
+        except Exception:
+            pass
 
     if not user:
         raise HTTPException(status_code=403, detail=f"No account registered for {raw_input}.")
@@ -658,6 +684,18 @@ def login(creds: LoginRequest, request: Request):
         FROM users 
         WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
     """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
+
+    if not user:
+        # Self-healing safeguard: if credentials don't match local SQLite, pull latest user state from Turso cloud on the fly!
+        try:
+            cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
+            user = cursor.execute("""
+                SELECT id, username, full_name, role, phone, is_active, COALESCE(can_promote, 0) as can_promote 
+                FROM users 
+                WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
+            """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
+        except Exception:
+            pass
 
     if not user:
         conn.close()
