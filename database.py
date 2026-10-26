@@ -35,6 +35,8 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''")
     if 'session_token' not in cols:
         cursor.execute("ALTER TABLE users ADD COLUMN session_token TEXT DEFAULT ''")
+    if 'can_promote' not in cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN can_promote INTEGER DEFAULT 0")
 
     # OTP Table (For Mobile Number + OTP Login)
     cursor.execute("""
@@ -155,13 +157,15 @@ def init_db():
     );
     """)
 
-    # Ensure status and branch columns exist in students (e.g. Active, Cancelled)
+    # Ensure status, branch, and previous_due columns exist in students (e.g. Active, Cancelled)
     cursor.execute("PRAGMA table_info(students)")
     student_cols = [col[1] for col in cursor.fetchall()]
     if 'status' not in student_cols:
         cursor.execute("ALTER TABLE students ADD COLUMN status TEXT DEFAULT 'Active'")
     if 'branch' not in student_cols:
         cursor.execute("ALTER TABLE students ADD COLUMN branch TEXT DEFAULT 'Branch 1'")
+    if 'previous_due' not in student_cols:
+        cursor.execute("ALTER TABLE students ADD COLUMN previous_due REAL DEFAULT 0.0")
 
     # 5. Payments & Receipts (Flexible Installments)
     cursor.execute("""

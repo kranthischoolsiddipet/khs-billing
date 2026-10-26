@@ -1,12 +1,13 @@
 {
-  "version": "1.1.5",
-  "released_at": "2026-10-26",
-  "notes": "Enabled full keyboard Enter key submission across all forms: Mobile login, 6-digit Authenticator/OTP sign-in, installment payment collection, search auto-selection, and cloud/drive settings",
+  "version": "1.1.6",
+  "released_at": "2026-10-27",
+  "notes": "Added Student Promotion & Annual Year Rollover tab with Previous Due automatic carry-forward, progression mapping (Nursery to Class 10/Graduated), and granular Admin-delegated permissions for designated T3 Cashiers",
   "files": [
     "index.html",
     "app.js",
-    "receipt.html",
     "main.py",
-    "cloud_sync.py"
+    "database.py",
+    "cloud_sync.py",
+    "version.json"
   ]
 }

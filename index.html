@@ -158,6 +158,12 @@
           <span>Staff & Cashiers</span>
         </button>
 
+        <!-- 9b. Student Promotion & Annual Rollover -->
+        <button onclick="switchTab('promote')" id="tab-promote" class="hidden w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
+          <i class="fa-solid fa-arrow-up-right-dots w-4 text-center text-indigo-600"></i>
+          <span>Student Promotion</span>
+        </button>
+
         <!-- 10. Audit & Activity Logs (Admin & Super Admin) -->
         <button onclick="switchTab('logs')" id="tab-logs" class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 flex items-center space-x-3 transition">
           <i class="fa-solid fa-clock-rotate-left w-4 text-center text-indigo-600"></i>
@@ -984,6 +990,7 @@
                 <th class="p-3">Login Username (Mobile #)</th>
                 <th class="p-3">Session & IP Tracking</th>
                 <th class="p-3">Access Status</th>
+                <th class="p-3 text-center">Promotion Rollover Rights</th>
                 <th class="p-3 text-center">Block / Unblock</th>
                 <th class="p-3 text-right">Actions</th>
               </tr>
@@ -1138,6 +1145,145 @@
               <tr><td colspan="11" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading student roster...</td></tr>
             </tbody>
           </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ================= SECTION: STUDENT PROMOTION & ROLLOVER ================= -->
+    <section id="sec-promote" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-6">
+        
+        <!-- Header -->
+        <div class="border-b border-slate-200 pb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-extrabold text-slate-900 flex items-center space-x-2">
+              <i class="fa-solid fa-arrow-up-right-dots text-indigo-600"></i>
+              <span>Student Promotion & Annual Year Rollover</span>
+            </h2>
+            <p class="text-xs text-slate-500">
+              Bulk promote cleared students to the next class or retain repeaters. Unpaid balance automatically carries forward as Previous Year Due.
+            </p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="bg-indigo-50 border border-indigo-200 text-indigo-800 text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1.5">
+              <i class="fa-solid fa-calculator"></i>
+              <span>Auto Due Carry-Forward Active</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Filter & Academic Year Selection -->
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-xs">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">From Academic Year *</label>
+            <select id="promoteFromYear" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="2025-2026">2025-2026</option>
+              <option value="2026-2027" selected>2026-2027</option>
+              <option value="2027-2028">2027-2028</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Current Class to Promote *</label>
+            <select id="promoteCurrentClass" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="Nursery">Nursery</option>
+              <option value="LKG">LKG</option>
+              <option value="UKG">UKG</option>
+              <option value="Class 1">Class 1</option>
+              <option value="Class 2">Class 2</option>
+              <option value="Class 3">Class 3</option>
+              <option value="Class 4">Class 4</option>
+              <option value="Class 5">Class 5</option>
+              <option value="Class 6" selected>Class 6</option>
+              <option value="Class 7">Class 7</option>
+              <option value="Class 8">Class 8</option>
+              <option value="Class 9">Class 9</option>
+              <option value="Class 10">Class 10</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">Promote To Academic Year *</label>
+            <select id="promoteToYear" class="w-full px-3 py-2 font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="2026-2027">2026-2027</option>
+              <option value="2027-2028" selected>2027-2028</option>
+              <option value="2028-2029">2028-2029</option>
+            </select>
+          </div>
+
+          <div>
+            <button type="button" onclick="loadPromotionRoster()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2 px-4 rounded-xl shadow-md transition flex items-center justify-center space-x-1.5">
+              <i class="fa-solid fa-users-viewfinder"></i>
+              <span>Load Class Roster</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Class Roster Promotion Summary Card -->
+        <div id="promoteSummaryGrid" class="hidden grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div class="bg-indigo-50/70 border border-indigo-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-indigo-600">Total in Class</p>
+            <p class="text-xl font-black text-indigo-950 mt-1" id="promStatTotal">0</p>
+            <p class="text-[10px] text-indigo-700/80 mt-0.5">Students enrolled</p>
+          </div>
+          <div class="bg-emerald-50/70 border border-emerald-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-emerald-700">Ready to Promote</p>
+            <p class="text-xl font-black text-emerald-950 mt-1" id="promStatPromote">0</p>
+            <p class="text-[10px] text-emerald-600 mt-0.5">Moving to next grade</p>
+          </div>
+          <div class="bg-amber-50/70 border border-amber-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-amber-700">Repeaters / Retained</p>
+            <p class="text-xl font-black text-amber-950 mt-1" id="promStatRetain">0</p>
+            <p class="text-[10px] text-amber-600 mt-0.5">Same class next year</p>
+          </div>
+          <div class="bg-rose-50/70 border border-rose-100 p-4 rounded-xl">
+            <p class="text-[10px] font-extrabold uppercase text-rose-700">Unpaid Balance to Carry</p>
+            <p class="text-xl font-black text-rose-950 mt-1" id="promStatDue">₹ 0</p>
+            <p class="text-[10px] text-rose-600 mt-0.5">Arrears to be carried over</p>
+          </div>
+        </div>
+
+        <!-- Student Roster Promotion Table -->
+        <div id="promoteTableContainer" class="hidden overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3 w-12 text-center">#</th>
+                <th class="p-3">Admission No</th>
+                <th class="p-3">Student Name</th>
+                <th class="p-3">Type</th>
+                <th class="p-3 text-right">Prior Due (Arrears)</th>
+                <th class="p-3 text-center">Carry Due?</th>
+                <th class="p-3">Promotion Action</th>
+                <th class="p-3">New Class</th>
+                <th class="p-3 w-20">New Sec</th>
+                <th class="p-3 text-right">Upcoming Base Fee</th>
+              </tr>
+            </thead>
+            <tbody id="promoteTableRows" class="divide-y divide-slate-100 text-slate-800">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Action Execution Toolbar -->
+        <div id="promoteActionToolbar" class="hidden bg-slate-50 border border-slate-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
+          <div class="text-xs text-slate-600">
+            <p class="font-bold text-slate-800"><i class="fa-solid fa-triangle-exclamation text-amber-500 mr-1.5"></i>Confirmation Safeguard:</p>
+            <p class="text-[11px] text-slate-500">
+              Executing rollover will update students' class & academic year. Carry-forward balances will immediately appear as arrears on their new ledger.
+            </p>
+          </div>
+          <div class="flex items-center space-x-3">
+            <button type="button" onclick="loadPromotionRoster()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition">
+              Reset Changes
+            </button>
+            <button type="button" onclick="executePromotionRollover()" id="btnExecutePromotion" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-6 py-2.5 rounded-xl text-xs shadow-md transition flex items-center space-x-2">
+              <i class="fa-solid fa-circle-check"></i>
+              <span>Execute Annual Promotion & Rollover</span>
+            </button>
+          </div>
         </div>
 
       </div>
@@ -1798,7 +1944,7 @@
     </div>
   </div>
 
-  <!-- Application Logic (Cache-busted v1.1.5) -->
-  <script src="/static/app.js?v=1.1.5"></script>
+  <!-- Application Logic (Cache-busted v1.1.6) -->
+  <script src="/static/app.js?v=1.1.6"></script>
 </body>
 </html>

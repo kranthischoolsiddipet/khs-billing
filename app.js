@@ -321,6 +321,7 @@ function applyUserRoleUI() {
   // Strictly Admin-only tabs: discounts (Approvals), reports, staff
   // Import tab is now available to both T3 and Admin!
   const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
+  const canPromote = isAdmin || (currentUser.role === 'T3' && Number(currentUser.can_promote) === 1);
   
   // Strictly Admin-only tabs: discounts (Approvals Queue), staff user management, and logs (Audit & Session logs)
   const adminOnlyTabIds = ['discounts', 'staff', 'logs', 'iplogs'];
@@ -334,6 +335,16 @@ function applyUserRoleUI() {
       }
     }
   });
+
+  // Student Promotion & Rollover tab visibility (Admin OR authorized T3 cashier)
+  const promoteTabBtn = document.getElementById('tab-promote');
+  if (promoteTabBtn) {
+    if (canPromote) {
+      promoteTabBtn.classList.remove('hidden');
+    } else {
+      promoteTabBtn.classList.add('hidden');
+    }
+  }
 
   // Import tab is visible to everyone, but Generate Sample Students is strictly Admin-only!
   const sampleBtn = document.getElementById('btnGenerateSampleStudents');
@@ -395,7 +406,14 @@ function applyUserRoleUI() {
 
 function switchTab(tabId) {
   const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
+  const canPromote = isAdmin || (currentUser && currentUser.role === 'T3' && Number(currentUser.can_promote) === 1);
   const adminOnlyTabIds = ['discounts', 'staff', 'logs', 'iplogs'];
+
+  if (tabId === 'promote' && !canPromote) {
+    alert("Access Denied: You do not have permission to execute Student Promotion & Rollover.");
+    switchTab('collect');
+    return;
+  }
 
   if (!isAdmin && adminOnlyTabIds.includes(tabId)) {
     alert("Access Denied: Only School Admins have permission to access this section.");
@@ -414,7 +432,7 @@ function switchTab(tabId) {
   }
 
   // Tab buttons
-  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff', 'logs', 'iplogs'].forEach(id => {
+  ['welcome', 'collect', 'classwise', 'admit', 'feemaster', 'discounts', 'reports', 'import', 'staff', 'promote', 'logs', 'iplogs'].forEach(id => {
     const btn = document.getElementById(`tab-${id}`);
     const sec = document.getElementById(`sec-${id}`);
     if (btn) {
@@ -428,6 +446,9 @@ function switchTab(tabId) {
       if (!isAdmin && adminOnlyTabIds.includes(id)) {
         btn.classList.add('hidden');
       }
+      if (id === 'promote' && !canPromote) {
+        btn.classList.add('hidden');
+      }
     }
     if (sec && id !== 'welcome') {
       if (id === tabId) {
@@ -439,6 +460,7 @@ function switchTab(tabId) {
   });
 
   if (tabId === 'classwise') loadClassWiseStudents();
+  if (tabId === 'promote') loadPromotionRoster();
   if (tabId === 'discounts') {
     loadPendingDiscounts();
     loadPendingAdmissionChanges();
@@ -2326,6 +2348,17 @@ async function loadStaffUsers() {
            </div>`
         : `<div class="text-[10px] text-slate-400 mt-1">No IP recorded</div>`;
 
+      const hasPromote = Number(u.can_promote) === 1;
+      const promoteBadge = hasPromote
+        ? `<button onclick="toggleStaffPromotionPermission(${u.id}, 0)" class="bg-emerald-50 hover:bg-rose-50 text-emerald-700 hover:text-rose-700 border border-emerald-300 hover:border-rose-300 font-bold px-2.5 py-1 rounded-lg text-xs transition flex items-center justify-center mx-auto space-x-1" title="Click to Revoke Promotion Permission">
+             <i class="fa-solid fa-circle-check text-emerald-600"></i>
+             <span>Granted</span>
+           </button>`
+        : `<button onclick="toggleStaffPromotionPermission(${u.id}, 1)" class="bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 font-bold px-2.5 py-1 rounded-lg text-xs transition flex items-center justify-center mx-auto space-x-1" title="Click to Grant Promotion Permission">
+             <i class="fa-solid fa-circle-xmark text-slate-400"></i>
+             <span>No Access</span>
+           </button>`;
+
       return `
         <tr class="hover:bg-slate-50 transition">
           <td class="p-3">
@@ -2338,6 +2371,7 @@ async function loadStaffUsers() {
             ${ipInfoHtml}
           </td>
           <td class="p-3">${statusBadge}</td>
+          <td class="p-3 text-center">${promoteBadge}</td>
           <td class="p-3 text-center">${toggleBtn}</td>
           <td class="p-3 text-right space-x-1.5 whitespace-nowrap">
             ${authBadge}
@@ -3573,5 +3607,261 @@ setInterval(async () => {
     }
   }
 }, 25000);
+
+// ================= STUDENT PROMOTION & ROLLOVER LOGIC =================
+
+let currentPromotionStudents = [];
+let currentProgressionOrder = [];
+
+async function toggleStaffPromotionPermission(userId, canPromote) {
+  if (!currentUser || !['T1', 'T2'].includes(currentUser.role)) {
+    alert("Only School Administrators (T1/T2) can delegate student promotion access.");
+    return;
+  }
+
+  const actionText = canPromote === 1 ? "GRANT Student Promotion access to" : "REVOKE Student Promotion access from";
+  if (!confirm(`Are you sure you want to ${actionText} this staff member?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/staff/toggle-promotion-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        can_promote: canPromote,
+        operator_user: currentUser.username
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Failed to update promotion access.");
+      return;
+    }
+
+    alert(data.message);
+    loadStaffUsers();
+  } catch (err) {
+    alert("Error updating promotion access: " + err);
+  }
+}
+
+async function loadPromotionRoster() {
+  const fromYear = document.getElementById('promoteFromYear')?.value || '2026-2027';
+  const toYear = document.getElementById('promoteToYear')?.value || '2027-2028';
+  const cname = document.getElementById('promoteCurrentClass')?.value || 'Class 6';
+
+  const tbody = document.getElementById('promoteTableRows');
+  const summaryGrid = document.getElementById('promoteSummaryGrid');
+  const tableCont = document.getElementById('promoteTableContainer');
+  const actionToolbar = document.getElementById('promoteActionToolbar');
+
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading class ${cname} roster for rollover...</td></tr>`;
+  }
+  if (tableCont) tableCont.classList.remove('hidden');
+
+  try {
+    const op = currentUser ? currentUser.username : 'admin';
+    const res = await fetch(`/api/promotion/preview?from_year=${encodeURIComponent(fromYear)}&class_name=${encodeURIComponent(cname)}&operator_user=${encodeURIComponent(op)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-rose-600 bg-rose-50 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${data.detail || "Failed to load class roster"}</td></tr>`;
+      }
+      return;
+    }
+
+    currentPromotionStudents = data.students || [];
+    currentProgressionOrder = data.progression_order || [];
+
+    if (currentPromotionStudents.length === 0) {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="10" class="p-8 text-center text-slate-400">No active students found in ${cname} for academic year ${fromYear}.</td></tr>`;
+      }
+      if (summaryGrid) summaryGrid.classList.add('hidden');
+      if (actionToolbar) actionToolbar.classList.add('hidden');
+      return;
+    }
+
+    if (summaryGrid) summaryGrid.classList.remove('hidden');
+    if (actionToolbar) actionToolbar.classList.remove('hidden');
+
+    renderPromotionTable();
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-rose-600 bg-rose-50 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>Error loading promotion roster: ${err}</td></tr>`;
+    }
+  }
+}
+
+function renderPromotionTable() {
+  const tbody = document.getElementById('promoteTableRows');
+  if (!tbody) return;
+
+  let totalDue = 0;
+  let countPromote = 0;
+  let countRetain = 0;
+
+  const html = currentPromotionStudents.map((s, idx) => {
+    const due = Math.max(0, Number(s.calculated_due || s.balance_due || 0));
+    totalDue += due;
+
+    const action = s.suggested_action || 'PROMOTE';
+    if (action === 'PROMOTE') countPromote++;
+    else if (action === 'RETAIN') countRetain++;
+
+    const classOptions = currentProgressionOrder.map(c => 
+      `<option value="${c}" ${c === s.suggested_next_class ? 'selected' : ''}>${c}</option>`
+    ).join('') + `<option value="Passed Out / Graduated" ${s.suggested_next_class === 'Passed Out / Graduated' ? 'selected' : ''}>Passed Out / Graduated</option>`;
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100" data-student-id="${s.id}">
+        <td class="p-3 text-center text-slate-400 font-bold">${idx + 1}</td>
+        <td class="p-3 font-mono font-bold text-indigo-900">${s.admission_no}</td>
+        <td class="p-3">
+          <div class="font-extrabold text-slate-900">${s.student_name}</div>
+          <div class="text-[10px] text-slate-500">${s.parent_name || ''} &bull; ${s.parent_phone || ''}</div>
+        </td>
+        <td class="p-3 text-slate-600">
+          <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${s.student_type === 'Residential' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}">
+            ${s.student_type}
+          </span>
+        </td>
+        <td class="p-3 text-right">
+          <span class="font-mono font-extrabold ${due > 0 ? 'text-rose-600' : 'text-slate-400'}">
+            ₹ ${due.toLocaleString('en-IN')}
+          </span>
+        </td>
+        <td class="p-3 text-center">
+          <input type="checkbox" id="promCarry_${s.id}" checked class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" title="Carry forward this balance to the next academic year">
+        </td>
+        <td class="p-3">
+          <select id="promAction_${s.id}" onchange="handlePromotionActionChange(${s.id})" class="px-2.5 py-1.5 font-bold text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white">
+            <option value="PROMOTE" ${action === 'PROMOTE' ? 'selected' : ''}>Promote to Next Class</option>
+            <option value="RETAIN" ${action === 'RETAIN' ? 'selected' : ''}>Repeat / Retain in Same Class</option>
+            <option value="GRADUATE" ${action === 'GRADUATE' ? 'selected' : ''}>Graduated / Passed Out</option>
+            <option value="LEFT" ${action === 'LEFT' ? 'selected' : ''}>TC Issued / Left School</option>
+          </select>
+        </td>
+        <td class="p-3">
+          <select id="promNextClass_${s.id}" class="px-2.5 py-1.5 font-bold text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-indigo-950">
+            ${classOptions}
+          </select>
+        </td>
+        <td class="p-3">
+          <input type="text" id="promNextSec_${s.id}" value="${s.section || 'A'}" maxlength="2" class="w-14 uppercase font-black text-center px-2 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+        </td>
+        <td class="p-3 text-right">
+          <span class="font-mono font-bold text-emerald-800" id="promFeeText_${s.id}">
+            ₹ ${Number(s.suggested_standard_fee || 0).toLocaleString('en-IN')}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.innerHTML = html;
+
+  // Update Stats Cards
+  document.getElementById('promStatTotal').innerText = currentPromotionStudents.length;
+  document.getElementById('promStatPromote').innerText = countPromote;
+  document.getElementById('promStatRetain').innerText = countRetain;
+  document.getElementById('promStatDue').innerText = `₹ ${totalDue.toLocaleString('en-IN')}`;
+}
+
+function handlePromotionActionChange(studentId) {
+  const actSelect = document.getElementById(`promAction_${studentId}`);
+  const nextClassSelect = document.getElementById(`promNextClass_${studentId}`);
+  const student = currentPromotionStudents.find(s => s.id === studentId);
+  if (!actSelect || !nextClassSelect || !student) return;
+
+  const act = actSelect.value;
+  if (act === 'RETAIN') {
+    nextClassSelect.value = student.class_name;
+  } else if (act === 'PROMOTE') {
+    nextClassSelect.value = student.suggested_next_class || student.class_name;
+  } else if (act === 'GRADUATE') {
+    nextClassSelect.value = 'Passed Out / Graduated';
+  } else if (act === 'LEFT') {
+    nextClassSelect.value = student.class_name;
+  }
+}
+
+async function executePromotionRollover() {
+  if (!currentUser) return;
+  const fromYear = document.getElementById('promoteFromYear')?.value || '2026-2027';
+  const toYear = document.getElementById('promoteToYear')?.value || '2027-2028';
+  const currentClass = document.getElementById('promoteCurrentClass')?.value || '';
+
+  if (fromYear === toYear) {
+    alert("Warning: 'From Academic Year' and 'Promote To Academic Year' cannot be the same year. Please select consecutive academic years.");
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to execute Annual Promotion & Rollover from ${fromYear} to ${toYear} for ${currentPromotionStudents.length} students in ${currentClass}?\n\n- Cleared students will advance to their new class.\n- Unpaid dues will automatically carry forward as Previous Due arrears.`)) {
+    return;
+  }
+
+  const btn = document.getElementById('btnExecutePromotion');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Processing Rollover...`;
+
+  const promotionsPayload = [];
+
+  for (const s of currentPromotionStudents) {
+    const act = document.getElementById(`promAction_${s.id}`)?.value || 'PROMOTE';
+    const nextClass = document.getElementById(`promNextClass_${s.id}`)?.value || s.class_name;
+    const nextSec = document.getElementById(`promNextSec_${s.id}`)?.value || s.section || 'A';
+    const carryDue = document.getElementById(`promCarry_${s.id}`) ? document.getElementById(`promCarry_${s.id}`).checked : true;
+
+    promotionsPayload.push({
+      student_id: s.id,
+      action: act,
+      new_class: nextClass,
+      new_section: nextSec.toUpperCase(),
+      new_academic_year: toYear,
+      carry_forward_due: carryDue
+    });
+  }
+
+  try {
+    const res = await fetch('/api/promotion/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from_year: fromYear,
+        to_year: toYear,
+        promotions: promotionsPayload,
+        operator_user: currentUser.username,
+        session_id: sessionStorage.getItem('khs_session_id') || ''
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Failed to execute promotion rollover.");
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      return;
+    }
+
+    alert(`Annual Promotion & Rollover Successful!\n\n${data.message}\nTotal students updated: ${data.processed_count}`);
+    
+    // Refresh student view & promotion view
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    loadPromotionRoster();
+  } catch (err) {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    alert("Server error executing promotion: " + err);
+  }
+}
+
 
 

@@ -68,21 +68,22 @@ def pull_cloud_data_into_local_db(sync_users: bool = False):
     try:
         # 1. Pull Users (Only on initial startup or explicit sync, never during background 20s loop)
         if sync_users:
-            ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token FROM users;"}], cfg['db_url'], cfg['auth_token'])
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token, COALESCE(can_promote, 0) FROM users;"}], cfg['db_url'], cfg['auth_token'])
             if ok and res.get('results'):
                 rows = res['results'][0]['response']['result']['rows']
                 for r in rows:
                     vals = [c.get('value') for c in r]
                     cur.execute("""
-                        INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token, can_promote)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(username) DO UPDATE SET
                             password_hash=excluded.password_hash,
                             full_name=excluded.full_name,
                             role=excluded.role,
                             phone=excluded.phone,
                             is_active=excluded.is_active,
-                            totp_secret=excluded.totp_secret;
+                            totp_secret=excluded.totp_secret,
+                            can_promote=excluded.can_promote;
                     """, vals)
 
         # 2. Pull Fee Structures
@@ -97,7 +98,7 @@ def pull_cloud_data_into_local_db(sync_users: bool = False):
                 """, vals)
 
         # 3. Pull Students (Preserve existing student id by using UPDATE or INSERT)
-        ok, res = execute_remote_turso_queries([{"sql": "SELECT admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status FROM students;"}], cfg['db_url'], cfg['auth_token'])
+        ok, res = execute_remote_turso_queries([{"sql": "SELECT admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status, COALESCE(previous_due, 0.0) FROM students;"}], cfg['db_url'], cfg['auth_token'])
         if ok and res.get('results'):
             rows = res['results'][0]['response']['result']['rows']
             for r in rows:
@@ -111,13 +112,13 @@ def pull_cloud_data_into_local_db(sync_users: bool = False):
                             academic_year = ?, student_type = ?, has_transport = ?, transport_fee = ?, bus_route = ?,
                             parent_name = ?, parent_phone = ?, parent_email = ?, address = ?, standard_fee = ?,
                             discount_amount = ?, final_agreed_fee = ?, discount_status = ?, admission_date = ?,
-                            created_by = ?, status = ?
+                            created_by = ?, status = ?, previous_due = ?
                         WHERE id = ?
                     """, vals[1:] + [existing_s[0]])
                 else:
                     cur.execute("""
-                        INSERT INTO students (admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO students (admission_no, roll_no, student_name, branch, gender, class_name, section, academic_year, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address, standard_fee, discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status, previous_due)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, vals)
 
         # 4. Pull Payments
@@ -335,6 +336,8 @@ def init_remote_schema_if_needed(db_url: str, auth_token: str):
         """},
         {"sql": "ALTER TABLE user_activity_logs ADD COLUMN ip_address TEXT DEFAULT '';"},
         {"sql": "ALTER TABLE user_activity_logs ADD COLUMN device_browser TEXT DEFAULT '';"},
+        {"sql": "ALTER TABLE users ADD COLUMN can_promote INTEGER DEFAULT 0;"},
+        {"sql": "ALTER TABLE students ADD COLUMN previous_due REAL DEFAULT 0.0;"},
         {"sql": """
             CREATE TABLE IF NOT EXISTS ip_access_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -420,8 +423,8 @@ def push_local_outbox_to_cloud():
                         admission_no, roll_no, student_name, branch, gender, class_name, section,
                         academic_year, student_type, has_transport, transport_fee, bus_route,
                         parent_name, parent_phone, parent_email, address, standard_fee,
-                        discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        discount_amount, final_agreed_fee, discount_status, admission_date, created_by, status, previous_due
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 "args": [
                     data.get('admission_no'), data.get('roll_no', ''), data.get('student_name'),
@@ -432,8 +435,41 @@ def push_local_outbox_to_cloud():
                     float(data.get('standard_fee', 0.0)), float(data.get('discount_amount', 0.0)),
                     float(data.get('final_agreed_fee', 0.0)), data.get('discount_status', 'None'),
                     data.get('admission_date', datetime.now().strftime("%Y-%m-%d")),
-                    data.get('created_by', 'frontdesk'), data.get('status', 'Active')
+                    data.get('created_by', 'frontdesk'), data.get('status', 'Active'),
+                    float(data.get('previous_due', 0.0))
                 ]
+            })
+
+        elif etype == 'student' and op == 'UPDATE':
+            queries.append({
+                "sql": """
+                    UPDATE students SET
+                        roll_no = ?, student_name = ?, branch = ?, gender = ?, class_name = ?, section = ?,
+                        academic_year = ?, student_type = ?, has_transport = ?, transport_fee = ?, bus_route = ?,
+                        parent_name = ?, parent_phone = ?, parent_email = ?, address = ?, standard_fee = ?,
+                        discount_amount = ?, final_agreed_fee = ?, discount_status = ?, admission_date = ?,
+                        created_by = ?, status = ?, previous_due = ?
+                    WHERE admission_no = ?
+                """,
+                "args": [
+                    data.get('roll_no', ''), data.get('student_name'),
+                    data.get('branch', 'Branch 1'), data.get('gender', 'Male'), data.get('class_name'),
+                    data.get('section', 'A'), data.get('academic_year', '2026-2027'), data.get('student_type', 'Day Scholar'),
+                    1 if data.get('has_transport') else 0, float(data.get('transport_fee', 0.0)), data.get('bus_route', ''),
+                    data.get('parent_name'), data.get('parent_phone'), data.get('parent_email', ''), data.get('address', ''),
+                    float(data.get('standard_fee', 0.0)), float(data.get('discount_amount', 0.0)),
+                    float(data.get('final_agreed_fee', 0.0)), data.get('discount_status', 'None'),
+                    data.get('admission_date', datetime.now().strftime("%Y-%m-%d")),
+                    data.get('created_by', 'frontdesk'), data.get('status', 'Active'),
+                    float(data.get('previous_due', 0.0)),
+                    data.get('admission_no')
+                ]
+            })
+
+        elif etype == 'user_permission' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE users SET can_promote = ? WHERE id = ?;",
+                "args": [int(data.get('can_promote', 0)), int(data.get('user_id', 0))]
             })
 
         elif etype == 'payment' and op == 'INSERT':

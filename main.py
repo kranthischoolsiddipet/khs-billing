@@ -200,6 +200,32 @@ class StaffStatusToggle(BaseModel):
     user_id: int
     is_active: int
 
+class StaffPromotionAccessToggle(BaseModel):
+    user_id: int
+    can_promote: int
+    operator_user: Optional[str] = "admin"
+
+class PromotionItem(BaseModel):
+    student_id: int
+    action: str # 'PROMOTE', 'RETAIN', 'GRADUATE', 'LEFT'
+    new_class: str
+    new_section: str
+    new_academic_year: str
+    carry_forward_due: bool = True
+    new_student_type: Optional[str] = None
+    has_transport: Optional[bool] = None
+    transport_fee: Optional[float] = None
+    bus_route: Optional[str] = None
+    custom_standard_fee: Optional[float] = None
+    custom_discount: Optional[float] = None
+
+class PromotionExecuteRequest(BaseModel):
+    from_year: str
+    to_year: str
+    promotions: List[PromotionItem]
+    operator_user: str = "admin"
+    session_id: Optional[str] = ""
+
 class StaffUserUpdate(BaseModel):
     user_id: int
     full_name: str
@@ -553,6 +579,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
 
             user_dict = dict_from_row(user)
             user_dict['session_token'] = sess_token
+            user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
             return {
                 "status": "success",
                 "method": "authenticator",
@@ -610,6 +637,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
 
     user_dict = dict_from_row(user)
     user_dict['session_token'] = sess_token
+    user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
 
     return {
         "status": "success",
@@ -625,7 +653,7 @@ def login(creds: LoginRequest, request: Request):
     conn = get_db()
     cursor = conn.cursor()
     user = cursor.execute("""
-        SELECT id, username, full_name, role, phone, is_active 
+        SELECT id, username, full_name, role, phone, is_active, COALESCE(can_promote, 0) as can_promote 
         FROM users 
         WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
     """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
@@ -662,6 +690,7 @@ def login(creds: LoginRequest, request: Request):
 
     user_dict = dict_from_row(user)
     user_dict['session_token'] = sess_token
+    user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
 
     return {
         "status": "success",
@@ -1006,7 +1035,7 @@ def get_staff_users():
     conn = get_db()
     # Only return front desk / billing users (role == 'T3')
     rows = conn.execute("""
-        SELECT id, username, full_name, role, phone, totp_secret, session_token, is_active, created_at 
+        SELECT id, username, full_name, role, phone, totp_secret, session_token, is_active, created_at, COALESCE(can_promote, 0) as can_promote
         FROM users 
         WHERE role = 'T3'
         ORDER BY id ASC
@@ -1150,6 +1179,37 @@ def toggle_staff_status(data: StaffStatusToggle):
 
     action_label = "Unblocked / Active" if data.is_active == 1 else "Blocked"
     return {"status": "success", "message": f"User access status updated to: {action_label}"}
+
+@app.post("/api/staff/toggle-promotion-access")
+def toggle_staff_promotion_access(data: StaffPromotionAccessToggle):
+    """Admin grants or revokes annual student promotion access for specific T3 Cashier"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify operator has T1/T2 admin privileges
+    op = cursor.execute("SELECT id, username, role FROM users WHERE username = ?", (data.operator_user.strip(),)).fetchone()
+    if not op or op['role'] not in ['T1', 'T2']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Only School Administrators (T1/T2) can delegate student rollover permissions.")
+
+    user = cursor.execute("SELECT id, role, full_name, username FROM users WHERE id = ?", (data.user_id,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_val = 1 if data.can_promote else 0
+    cursor.execute("UPDATE users SET can_promote = ? WHERE id = ?", (new_val, data.user_id))
+    conn.commit()
+    conn.close()
+
+    # Cloud sync user permission
+    try:
+        cloud_sync.queue_transaction_locally('user_permission', str(data.user_id), 'UPDATE', {'user_id': data.user_id, 'can_promote': new_val}, "Branch 1")
+    except Exception:
+        pass
+
+    action_text = "GRANTED" if new_val == 1 else "REVOKED"
+    return {"status": "success", "can_promote": new_val, "message": f"Promotion access {action_text} for {user['full_name']} ({user['username']})"}
 
 @app.post("/api/staff/force-logout")
 def force_logout_staff(data: StaffForceLogoutRequest, request: Request):
@@ -2449,8 +2509,8 @@ def load_sample_students(operator_user: str = Query("admin")):
                 admission_no, roll_no, student_name, gender, class_name, section,
                 academic_year, student_type, has_transport, transport_fee, bus_route,
                 parent_name, parent_phone, address, standard_fee, discount_amount,
-                final_agreed_fee, discount_status, admission_date, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, '2026-2027', ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, 'Approved', CURRENT_DATE, ?)
+                final_agreed_fee, discount_status, admission_date, created_by, previous_due
+            ) VALUES (?, ?, ?, ?, ?, ?, '2026-2027', ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, 'Approved', CURRENT_DATE, ?, 0.0)
         """, (
             adm_no, r_no, sname.upper(), gndr, cname, sec,
             stype, has_tr, tr_fee, b_route,
@@ -2483,6 +2543,279 @@ def load_sample_students(operator_user: str = Query("admin")):
         "status": "success",
         "added_count": added,
         "message": f"Successfully generated {added} sample students ({', '.join(added_names)})! You can find them in the Fee Collection tab."
+    }
+
+# ----------------- STUDENT PROMOTION & ROLLOVER APIS -----------------
+
+PROGRESSION_ORDER = [
+    "Nursery", "LKG", "UKG",
+    "Class 1", "Class 2", "Class 3", "Class 4", "Class 5",
+    "Class 6", "Class 7", "Class 8", "Class 9", "Class 10"
+]
+
+def get_next_progression_class(current_class: str) -> str:
+    """Returns next class in sequence or 'Passed Out / Graduated' if beyond Class 10"""
+    c = current_class.strip()
+    # Normalize aliases if any
+    c_norm = c
+    if c.lower() in ["pp1", "pre-primary 1"]:
+        c_norm = "LKG"
+    elif c.lower() in ["pp2", "pre-primary 2"]:
+        c_norm = "UKG"
+    
+    for idx, item in enumerate(PROGRESSION_ORDER):
+        if item.lower() == c_norm.lower():
+            if idx + 1 < len(PROGRESSION_ORDER):
+                return PROGRESSION_ORDER[idx + 1]
+            else:
+                return "Passed Out / Graduated"
+    return "Passed Out / Graduated"
+
+def verify_promotion_operator_access(cursor, operator_user: str):
+    """Ensures caller has T1/T2 admin permission OR is an explicitly authorized T3 user"""
+    u = cursor.execute("SELECT id, username, full_name, role, COALESCE(can_promote, 0) as can_promote, is_active FROM users WHERE username = ?", (operator_user.strip(),)).fetchone()
+    if not u or not u['is_active']:
+        raise HTTPException(status_code=403, detail="Operator user not found or access blocked.")
+    if u['role'] in ['T1', 'T2']:
+        return u
+    if u['role'] == 'T3' and u['can_promote'] == 1:
+        return u
+    raise HTTPException(status_code=403, detail="Access denied. You do not have permission to execute Student Promotion & Rollover. Please contact School Admin.")
+
+@app.get("/api/promotion/preview")
+def get_promotion_preview(
+    from_year: str = Query("2026-2027"),
+    class_name: str = Query(...),
+    operator_user: str = Query("admin")
+):
+    """
+    Returns list of students currently enrolled in the given class and academic year,
+    along with their calculated balance due, default next class, and upcoming base fees.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    verify_promotion_operator_access(cursor, operator_user)
+
+    # 1. Fetch all students in this class and academic year
+    students = cursor.execute("""
+        SELECT s.*, 
+            COALESCE((SELECT SUM(amount_paid) FROM payments WHERE student_id = s.id), 0.0) as total_paid,
+            (s.final_agreed_fee - COALESCE((SELECT SUM(amount_paid) FROM payments WHERE student_id = s.id), 0.0)) as balance_due
+        FROM students s
+        WHERE s.class_name = ? AND s.academic_year = ? AND s.status != 'Cancelled'
+        ORDER BY s.section ASC, s.student_name ASC
+    """, (class_name.strip(), from_year.strip())).fetchall()
+
+    # 2. Fetch fee structures to suggest new base fees
+    fee_rows = cursor.execute("SELECT class_name, student_type, total_base_fee FROM fee_structures").fetchall()
+    fee_map = {}
+    for fr in fee_rows:
+        key = f"{fr['class_name'].strip().lower()}_{fr['student_type'].strip().lower()}"
+        fee_map[key] = float(fr['total_base_fee'])
+
+    preview_list = []
+    for s in students:
+        s_dict = dict_from_row(s)
+        curr_class = s_dict['class_name']
+        next_class = get_next_progression_class(curr_class)
+        stype = s_dict['student_type']
+        curr_due = max(0.0, round(float(s_dict.get('balance_due') or 0.0), 2))
+        s_dict['calculated_due'] = curr_due
+
+        fee_key = f"{next_class.strip().lower()}_{stype.strip().lower()}"
+        new_std_fee = fee_map.get(fee_key, float(s_dict.get('standard_fee') or 0.0))
+
+        s_dict['suggested_next_class'] = next_class
+        s_dict['suggested_action'] = "GRADUATE" if next_class == "Passed Out / Graduated" else "PROMOTE"
+        s_dict['suggested_standard_fee'] = new_std_fee
+        preview_list.append(s_dict)
+
+    conn.close()
+
+    return {
+        "status": "success",
+        "from_year": from_year,
+        "class_name": class_name,
+        "total_students": len(preview_list),
+        "students": preview_list,
+        "progression_order": PROGRESSION_ORDER
+    }
+
+@app.post("/api/promotion/execute")
+def execute_student_promotion(req: PromotionExecuteRequest, request: Request):
+    """
+    Executes student promotion & rollover decisions:
+    - Automatically carries forward prior balance due into `previous_due`
+    - Recalculates final_agreed_fee = new_standard_fee + transport_fee - discount + previous_due
+    - Updates class_name, section, academic_year, and status
+    - Queues local outbox sync to Turso cloud
+    - Emits audit log entry
+    """
+    ip_addr, dev_browser = parse_client_info(request)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    operator = verify_promotion_operator_access(cursor, req.operator_user)
+
+    now_ist = get_ist_now()
+    now_str = now_ist.strftime("%Y-%m-%d %H:%M:%S")
+
+    fee_rows = cursor.execute("SELECT class_name, student_type, total_base_fee FROM fee_structures").fetchall()
+    fee_map = {}
+    for fr in fee_rows:
+        key = f"{fr['class_name'].strip().lower()}_{fr['student_type'].strip().lower()}"
+        fee_map[key] = float(fr['total_base_fee'])
+
+    processed_count = 0
+    promoted_names = []
+
+    for item in req.promotions:
+        student = cursor.execute("""
+            SELECT s.*, 
+                COALESCE((SELECT SUM(amount_paid) FROM payments WHERE student_id = s.id), 0.0) as total_paid,
+                (s.final_agreed_fee - COALESCE((SELECT SUM(amount_paid) FROM payments WHERE student_id = s.id), 0.0)) as balance_due
+            FROM students s
+            WHERE s.id = ?
+        """, (item.student_id,)).fetchone()
+
+        if not student:
+            continue
+
+        raw_due = max(0.0, round(float(student['balance_due'] or 0.0), 2))
+        carry_due = raw_due if item.carry_forward_due else 0.0
+
+        stype = item.new_student_type or student['student_type']
+        has_tr = 1 if (item.has_transport if item.has_transport is not None else student['has_transport']) else 0
+        tr_fee = float(item.transport_fee if item.transport_fee is not None else student['transport_fee'])
+        b_route = item.bus_route if item.bus_route is not None else student['bus_route']
+
+        if item.action == 'PROMOTE':
+            new_class = item.new_class.strip()
+            new_sec = (item.new_section or student['section'] or 'A').strip().upper()
+            fee_key = f"{new_class.lower()}_{stype.lower()}"
+            base_fee = item.custom_standard_fee if item.custom_standard_fee is not None else fee_map.get(fee_key, float(student['standard_fee']))
+            disc = item.custom_discount if item.custom_discount is not None else 0.0
+            new_agreed = round(base_fee + tr_fee - disc + carry_due, 2)
+            new_status = 'Active'
+
+        elif item.action == 'RETAIN':
+            new_class = student['class_name']
+            new_sec = (item.new_section or student['section'] or 'A').strip().upper()
+            fee_key = f"{new_class.lower()}_{stype.lower()}"
+            base_fee = item.custom_standard_fee if item.custom_standard_fee is not None else fee_map.get(fee_key, float(student['standard_fee']))
+            disc = item.custom_discount if item.custom_discount is not None else float(student['discount_amount'])
+            new_agreed = round(base_fee + tr_fee - disc + carry_due, 2)
+            new_status = 'Active'
+
+        elif item.action == 'GRADUATE':
+            new_class = 'Passed Out / Graduated'
+            new_sec = '-'
+            base_fee = 0.0
+            disc = 0.0
+            new_agreed = carry_due
+            new_status = 'Graduated'
+
+        elif item.action == 'LEFT':
+            new_class = student['class_name']
+            new_sec = student['section']
+            base_fee = 0.0
+            disc = 0.0
+            new_agreed = carry_due
+            new_status = 'TC Issued / Left'
+        else:
+            continue
+
+        cursor.execute("""
+            UPDATE students SET
+                class_name = ?,
+                section = ?,
+                academic_year = ?,
+                student_type = ?,
+                has_transport = ?,
+                transport_fee = ?,
+                bus_route = ?,
+                standard_fee = ?,
+                discount_amount = ?,
+                final_agreed_fee = ?,
+                previous_due = ?,
+                status = ?
+            WHERE id = ?
+        """, (
+            new_class, new_sec, req.to_year.strip(),
+            stype, has_tr, tr_fee, b_route,
+            base_fee, disc, new_agreed, carry_due,
+            new_status, item.student_id
+        ))
+
+        # Queue cloud sync for this updated student
+        try:
+            cloud_payload = {
+                "admission_no": student['admission_no'],
+                "roll_no": student['roll_no'] or '',
+                "student_name": student['student_name'],
+                "branch": student['branch'] or 'Branch 1',
+                "gender": student['gender'] or 'Male',
+                "class_name": new_class,
+                "section": new_sec,
+                "academic_year": req.to_year.strip(),
+                "student_type": stype,
+                "has_transport": has_tr,
+                "transport_fee": tr_fee,
+                "bus_route": b_route,
+                "parent_name": student['parent_name'],
+                "parent_phone": student['parent_phone'],
+                "parent_email": student['parent_email'] or '',
+                "address": student['address'] or '',
+                "standard_fee": base_fee,
+                "discount_amount": disc,
+                "final_agreed_fee": new_agreed,
+                "discount_status": student['discount_status'] or 'None',
+                "admission_date": student['admission_date'],
+                "created_by": student['created_by'],
+                "status": new_status,
+                "previous_due": carry_due
+            }
+            cloud_sync.queue_transaction_locally('student', student['admission_no'], 'UPDATE', cloud_payload, student['branch'] or 'Branch 1')
+        except Exception as e_q:
+            print(f"[PROMOTION CLOUD QUEUE NOTICE]: {e_q}")
+
+        processed_count += 1
+        promoted_names.append(f"{student['student_name']} ({student['admission_no']}) -> {new_class}")
+
+    conn.commit()
+    conn.close()
+
+    # Record Activity Log for Promotion
+    sess_id = (req.session_id or f"sess_{req.operator_user}").strip()
+    record_activity_log(
+        session_id=sess_id,
+        username=operator['username'],
+        full_name=operator['full_name'],
+        role=operator['role'],
+        branch="Branch 1",
+        action_type="STUDENT_PROMOTION",
+        action_details=f"Rollover from {req.from_year} to {req.to_year}: processed {processed_count} students ({', '.join(promoted_names[:3])}{'...' if len(promoted_names) > 3 else ''})",
+        entity_id=f"ROLLOVER-{req.from_year}-TO-{req.to_year}",
+        amount=0.0,
+        ip_address=ip_addr,
+        device_browser=dev_browser
+    )
+
+    # Trigger background push
+    try:
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "processed_count": processed_count,
+        "from_year": req.from_year,
+        "to_year": req.to_year,
+        "message": f"Successfully rolled over {processed_count} students to {req.to_year}! Outstanding dues were carried forward."
     }
 
 # ----------------- BACKUP DATABASE & AUTOMATED SAFEGUARDS -----------------
