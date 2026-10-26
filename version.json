@@ -1,12 +1,12 @@
 {
-  "version": "1.1.4",
+  "version": "1.1.5",
   "released_at": "2026-10-26",
-  "notes": "Fixed session termination issue for T3 users by isolating background database sync from active session tokens and adding instant direct session sync",
+  "notes": "Enabled full keyboard Enter key submission across all forms: Mobile login, 6-digit Authenticator/OTP sign-in, installment payment collection, search auto-selection, and cloud/drive settings",
   "files": [
-    "main.py",
-    "cloud_sync.py",
-    "app.js",
     "index.html",
-    "database.py"
+    "app.js",
+    "receipt.html",
+    "main.py",
+    "cloud_sync.py"
   ]
 }

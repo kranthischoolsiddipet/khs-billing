@@ -234,7 +234,7 @@
 
           <!-- Unified Search Input with Autocomplete Results -->
           <div class="relative max-w-2xl">
-            <input type="text" id="studentSearchInput" oninput="debounceSearch()" placeholder="Type Admission No, Student Name, or Phone (e.g. KHS-2026-001 or RAHUL)..." class="w-full pl-10 pr-10 py-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-xs">
+            <input type="text" id="studentSearchInput" oninput="debounceSearch()" onkeydown="handleSearchInputKeydown(event)" placeholder="Type Admission No, Student Name, or Phone (e.g. KHS-2026-001 or RAHUL)..." class="w-full pl-10 pr-10 py-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-xs">
             <i class="fa-solid fa-search absolute left-3.5 top-3.5 text-slate-400 text-xs"></i>
             <button type="button" onclick="document.getElementById('studentSearchInput').value=''; debounceSearch();" class="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600">
               <i class="fa-solid fa-circle-xmark text-xs"></i>
@@ -310,7 +310,7 @@
           </div>
 
           <!-- Collect Payment Form -->
-          <div class="border border-indigo-100 bg-indigo-50/40 p-5 rounded-2xl space-y-4">
+          <form onsubmit="event.preventDefault(); submitInstallmentPayment();" class="border border-indigo-100 bg-indigo-50/40 p-5 rounded-2xl space-y-4">
             <h4 class="text-xs font-extrabold text-indigo-950 uppercase tracking-wider flex items-center space-x-2">
               <i class="fa-solid fa-hand-holding-dollar text-indigo-600"></i>
               <span>Collect Installment Amount</span>
@@ -348,13 +348,13 @@
                 <input type="text" id="payLabelInput" placeholder="e.g. 2nd Installment / Term 2" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
               </div>
               <div class="flex items-end">
-                <button onclick="submitInstallmentPayment()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center space-x-2 transition">
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center space-x-2 transition">
                   <i class="fa-solid fa-print"></i>
                   <span>Generate Official Receipt & WhatsApp</span>
                 </button>
               </div>
             </div>
-          </div>
+          </form>
 
           <!-- Previous Installments Ledger -->
           <div>
@@ -1338,16 +1338,18 @@
 
       <!-- FORM 1: MOBILE NUMBER + AUTHENTICATOR / OTP LOGIN -->
       <div id="loginOtpContainer" class="space-y-4">
-        <div>
-          <label class="block text-[11px] font-bold text-slate-700 mb-1">Enter Username / Mobile Number *</label>
-          <div class="flex space-x-2">
-            <input type="text" id="otpMobileInput" required maxlength="12" oninput="this.value = this.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 12); onMobileInputChanged();" placeholder="10-digit mobile number" class="flex-1 px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
-            <button type="button" id="btnRequestOtp" onclick="handleContinueMobileLogin()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition shrink-0 flex items-center space-x-1">
-              <i class="fa-solid fa-arrow-right"></i>
-              <span id="btnContinueLabel">Continue</span>
-            </button>
+        <form onsubmit="handleContinueMobileLogin(event); return false;" class="space-y-4">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-700 mb-1">Enter Username / Mobile Number *</label>
+            <div class="flex space-x-2">
+              <input type="text" id="otpMobileInput" required maxlength="12" oninput="this.value = this.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 12); onMobileInputChanged();" placeholder="10-digit mobile number" class="flex-1 px-3 py-2 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+              <button type="submit" id="btnRequestOtp" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl shadow-xs transition shrink-0 flex items-center space-x-1">
+                <i class="fa-solid fa-arrow-right"></i>
+                <span id="btnContinueLabel">Continue</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
 
         <!-- Authenticator / OTP Input Box (Revealed after entering mobile) -->
         <div id="otpInputSection" class="hidden space-y-3 pt-2 border-t border-slate-100">
@@ -1356,15 +1358,17 @@
             <!-- Populated dynamically -->
           </div>
 
-          <div>
-            <label class="block text-[11px] font-bold text-slate-700 mb-1" id="otpCodeLabel">Enter 6-Digit Authenticator Code *</label>
-            <input type="text" id="otpCodeInput" maxlength="6" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="000000" class="w-full px-3 py-2.5 text-base font-mono tracking-widest text-center font-black border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
-          </div>
+          <form onsubmit="handleVerifyOtpSubmit(event); return false;" class="space-y-3">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 mb-1" id="otpCodeLabel">Enter 6-Digit Authenticator Code *</label>
+              <input type="text" id="otpCodeInput" maxlength="6" oninput="this.value = this.value.replace(/[^0-9]/g, '')" placeholder="000000" class="w-full px-3 py-2.5 text-base font-mono tracking-widest text-center font-black border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500">
+            </div>
 
-          <button type="button" onclick="handleVerifyOtpSubmit()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md transition flex items-center justify-center space-x-2">
-            <i class="fa-solid fa-lock-open"></i>
-            <span>Verify & Sign In</span>
-          </button>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md transition flex items-center justify-center space-x-2">
+              <i class="fa-solid fa-lock-open"></i>
+              <span>Verify & Sign In</span>
+            </button>
+          </form>
         </div>
       </div>
 
@@ -1381,9 +1385,6 @@
           </div>
           <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl shadow-md transition">
             Sign In as Admin
-          </button>
-        </form>
-      </div>
           </button>
         </form>
       </div>
@@ -1660,7 +1661,7 @@
       </div>
 
       <!-- Configuration Form -->
-      <div class="space-y-3 pt-1">
+      <form onsubmit="event.preventDefault(); saveGDriveSettings();" class="space-y-3 pt-1">
         <div>
           <label class="block text-[11px] font-bold text-slate-700 mb-1">
             1. Google Service Account Credentials JSON
@@ -1687,11 +1688,11 @@
             <input type="checkbox" id="gdriveAutoSyncCheck" checked class="w-4 h-4 text-blue-600 rounded">
             <span class="text-xs font-bold text-slate-700">Auto-sync snapshot every evening</span>
           </label>
-          <button onclick="saveGDriveSettings()" id="btnSaveGDriveConfig" class="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-xs transition">
+          <button type="submit" id="btnSaveGDriveConfig" class="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-xs transition">
             Save Settings
           </button>
         </div>
-      </div>
+      </form>
 
     </div>
   </div>
@@ -1741,7 +1742,7 @@
       </div>
 
       <!-- Configuration Inputs -->
-      <div class="space-y-3 pt-1 text-xs">
+      <form onsubmit="event.preventDefault(); saveCloudSyncSettings();" class="space-y-3 pt-1 text-xs">
         <div>
           <label class="block text-[11px] font-bold text-slate-700 mb-1">
             Central Cloud Database URL (Turso / LibSQL HTTP) *
@@ -1787,17 +1788,17 @@
               <i class="fa-solid fa-rotate"></i>
               <span>Sync Now</span>
             </button>
-            <button type="button" onclick="saveCloudSyncSettings()" id="btnSaveCloudSync" class="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-4 py-2 rounded-xl transition">
+            <button type="submit" id="btnSaveCloudSync" class="bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-4 py-2 rounded-xl transition">
               Save Settings
             </button>
           </div>
         </div>
-      </div>
+      </form>
 
     </div>
   </div>
 
-  <!-- Application Logic (Cache-busted v1.1.4) -->
-  <script src="/static/app.js?v=1.1.4"></script>
+  <!-- Application Logic (Cache-busted v1.1.5) -->
+  <script src="/static/app.js?v=1.1.5"></script>
 </body>
 </html>

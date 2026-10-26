@@ -453,6 +453,25 @@ function switchTab(tabId) {
 
 // ================= SEARCH & INSTALLMENT COLLECTION =================
 
+function handleSearchInputKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const list = document.getElementById('searchResultsList');
+    if (list && !list.classList.contains('hidden')) {
+      const firstItem = list.querySelector('.search-result-item');
+      if (firstItem) {
+        const studentId = firstItem.getAttribute('data-student-id');
+        if (studentId) {
+          selectStudent(parseInt(studentId, 10));
+          return;
+        }
+      }
+    }
+    // If search hasn't executed yet, run immediately
+    performStudentSearch();
+  }
+}
+
 function debounceSearch() {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(performStudentSearch, 300);
@@ -479,8 +498,8 @@ async function performStudentSearch() {
       return;
     }
 
-    list.innerHTML = students.map(s => `
-      <div onclick="selectStudent(${s.id})" class="p-3 hover:bg-indigo-50 cursor-pointer transition flex items-center justify-between">
+    list.innerHTML = students.map((s, idx) => `
+      <div onclick="selectStudent(${s.id})" data-student-id="${s.id}" class="search-result-item p-3 hover:bg-indigo-50 cursor-pointer transition flex items-center justify-between ${idx === 0 ? 'bg-indigo-50/50' : ''}">
         <div>
           <div class="flex items-center space-x-2">
             <span class="font-bold text-xs text-slate-900">${s.student_name}</span>
@@ -2071,7 +2090,8 @@ function onMobileInputChanged() {
   if (inputSec) inputSec.classList.add('hidden');
 }
 
-async function handleContinueMobileLogin() {
+async function handleContinueMobileLogin(e) {
+  if (e && e.preventDefault) e.preventDefault();
   const mobileInput = document.getElementById('otpMobileInput');
   const rawInput = mobileInput.value.trim();
   const isSa = rawInput.toUpperCase().startsWith("SA");
@@ -2190,7 +2210,8 @@ async function handleRequestOtp(isFallback = false) {
   }
 }
 
-async function handleVerifyOtpSubmit() {
+async function handleVerifyOtpSubmit(e) {
+  if (e && e.preventDefault) e.preventDefault();
   const rawInput = document.getElementById('otpMobileInput').value.trim();
   const isSa = rawInput.toUpperCase().startsWith("SA");
   const cleanDigits = isSa ? rawInput.slice(2) : rawInput;
