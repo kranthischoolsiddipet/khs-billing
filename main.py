@@ -78,6 +78,7 @@ def start_sync_worker():
         if cfg.get("enabled"):
             print("[STARTUP] Hydrating database from Turso Cloud...")
             cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
+            print("[STARTUP] Database hydration complete!")
     except Exception as e:
         print(f"[STARTUP HYDRATION ERROR]: {e}")
 

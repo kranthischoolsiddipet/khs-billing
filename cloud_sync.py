@@ -7,6 +7,10 @@ from datetime import datetime
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cloud_sync_config.json")
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "khs_billing.db")
 
+# Embedded fallback credentials for cloud database sync (Render / Cloud environment)
+DEFAULT_TURSO_URL = "libsql://khs-billing-kranthischoolsiddipet.aws-ap-south-1.turso.io"
+DEFAULT_TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI0Mjk0NzQsImlkIjoiMDFhMTU1MTktNGQwMS03NGJkLTlkMjQtODEyZDAxNmRiYTg2Iiwia2lkIjoiUFRGaVdLU3ZndTFmS05kVUlsazJYMDdBR091eTVvU3pyQVYxX2hZUDN2NCIsInJpZCI6ImRlYjZlZGI4LTk2MTUtNDE3NC04ZTkxLTFkZTFmODg5ZDViZCJ9.k70_3KFb9jXiHOqme7MA9WHA7R00VfryQUfb6mx7Ng6z6u1U7BhzJuBcqFJKnpx6iTonZNI0CpPTsMxK1IguAQ"
+
 def get_sync_config():
     # If environment variables are set (like on Render), use them automatically!
     env_db_url = os.environ.get("TURSO_DB_URL", "").strip()
@@ -21,20 +25,24 @@ def get_sync_config():
             "auto_sync_interval_seconds": 20
         }
 
-    if not os.path.exists(CONFIG_FILE):
-        return {
-            "enabled": False,
-            "provider": "turso_http", # "turso_http" or "custom_api"
-            "db_url": "",             # e.g. https://[db-name]-[org].turso.io or libsql://
-            "auth_token": "",         # Turso Auth Token
-            "branch": "Branch 1",
-            "auto_sync_interval_seconds": 30
-        }
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"enabled": False, "provider": "turso_http", "db_url": "", "auth_token": "", "branch": "Branch 1", "auto_sync_interval_seconds": 30}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                data = json.load(f)
+                if data.get("db_url") and data.get("auth_token"):
+                    return data
+        except:
+            pass
+
+    # Fallback to default school Turso database
+    return {
+        "enabled": True,
+        "provider": "turso_http",
+        "db_url": DEFAULT_TURSO_URL,
+        "auth_token": DEFAULT_TURSO_TOKEN,
+        "branch": "All",
+        "auto_sync_interval_seconds": 20
+    }
 
 def save_sync_config(cfg: dict):
     with open(CONFIG_FILE, "w") as f:

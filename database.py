@@ -272,13 +272,18 @@ def init_db():
         INSERT INTO users (username, password_hash, full_name, role, phone)
         VALUES (?, ?, ?, ?, ?);
         """, [
-            ('superadmin', 'admin123', 'Super Administrator', 'T1', '9876543210'),
-            ('admin', 'admin123', 'Admin', 'T2', '9876543211'),
-            ('frontdesk', 'desk123', 'KHS Billing Desk', 'T3', '9876543212')
+            ('superadmin', 'Bhagavan@KHS2026', 'Super Administrator', 'T1', '9876543210'),
+            ('admin', 'Bhagavan@KHS2026', 'Admin', 'T2', '9876543211'),
+            ('frontdesk', 'desk123', 'KHS Billing Desk', 'T3', '9876543212'),
+            ('6303761588', '', 'SUMANTH', 'T3', '6303761588'),
+            ('6303761235', '', 'ARCHANA', 'T3', '6303761235'),
+            ('SA6303761588', '', 'SUMANTH (Super Admin)', 'T1', '6303761588')
         ])
 
     # Ensure admin user full_name is cleanly updated to 'Admin' (removing 'Principal')
     cursor.execute("UPDATE users SET full_name = 'Admin' WHERE username = 'admin' AND full_name LIKE '%Principal%'")
+    # Ensure admin password is set to Bhagavan@KHS2026
+    cursor.execute("UPDATE users SET password_hash = 'Bhagavan@KHS2026' WHERE username = 'admin' AND (password_hash = 'admin123' OR password_hash = '')")
     conn.commit()
 
     # 7. Seed Default Fee Master if empty
