@@ -1854,17 +1854,19 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
             WHERE id = ?
         """, (approver_user, req.approved_discount, req.admin_remarks, req.request_id))
 
-        if student_id:
+        adm_no = req_row['admission_no']
+        student = cursor.execute("SELECT * FROM students WHERE admission_no = ? OR id = ?", (adm_no, student_id)).fetchone() if (adm_no or student_id) else None
+
+        if student:
             # Recalculate student final agreed fee if student already admitted
-            student = cursor.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
-            std_fee = float(student['standard_fee']) if student else 0.0
+            std_fee = float(student['standard_fee']) if student['standard_fee'] else 0.0
             new_agreed = max(0.0, std_fee - req.approved_discount)
             cursor.execute("""
                 UPDATE students 
                 SET discount_amount = ?, final_agreed_fee = ?, discount_status = 'Approved'
-                WHERE id = ?
-            """, (req.approved_discount, new_agreed, student_id))
-            cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_agreed, student_id))
+                WHERE admission_no = ?
+            """, (req.approved_discount, new_agreed, student['admission_no']))
+            cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_agreed, student['admission_no']))
 
             # Queue student & payments update
             try:
@@ -1922,8 +1924,9 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
             WHERE id = ?
         """, (approver_user, req.admin_remarks, req.request_id))
 
-        if student_id:
-            cursor.execute("UPDATE students SET discount_status = 'Rejected' WHERE id = ?", (student_id,))
+        adm_no = req_row['admission_no']
+        if adm_no or student_id:
+            cursor.execute("UPDATE students SET discount_status = 'Rejected' WHERE admission_no = ? OR id = ?", (adm_no, student_id))
 
         try:
             import cloud_sync
@@ -2048,14 +2051,16 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
             WHERE id = ?
         """, (approver_user, req.admin_remarks, req.request_id))
 
+        adm_no = req_row['admission_no']
+        student = cursor.execute("SELECT * FROM students WHERE admission_no = ? OR id = ?", (adm_no, student_id)).fetchone()
+
         if req_row['request_type'] == 'CANCEL_ADMISSION':
-            cursor.execute("UPDATE students SET status = 'Cancelled' WHERE id = ?", (student_id,))
+            cursor.execute("UPDATE students SET status = 'Cancelled' WHERE admission_no = ? OR id = ?", (adm_no, student_id))
         elif req_row['request_type'] == 'REVISE_FEE':
             proposed = json.loads(req_row['proposed_data'] or "{}")
             new_fee = float(proposed.get('new_agreed_fee', 0.0))
             if new_fee > 0:
                 # Recalculate discount if standard_fee > new_fee
-                student = cursor.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
                 std_fee = float(student['standard_fee']) if student else new_fee
                 tr_fee = float(student['transport_fee'] or 0.0) if student else 0.0
                 prev_due = float(student['previous_due'] or 0.0) if student else 0.0
@@ -2065,41 +2070,41 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                     UPDATE students 
                     SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved' 
                     WHERE admission_no = ?
-                """, (new_fee, calc_discount, req_row['admission_no']))
-                cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, req_row['admission_no']))
+                """, (new_fee, calc_discount, adm_no))
+                cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, adm_no))
 
                 # Queue cloud sync
                 try:
-                    cloud_sync.queue_transaction_locally('student', req_row['admission_no'], 'UPDATE', {
-                        "admission_no": req_row['admission_no'],
-                        "roll_no": student['roll_no'] or '',
-                        "student_name": student['student_name'],
-                        "branch": student['branch'] or 'Branch 1',
-                        "gender": student['gender'] or 'Male',
-                        "class_name": student['class_name'],
-                        "section": student['section'] or 'A',
-                        "academic_year": student['academic_year'] or '2026-2027',
-                        "student_type": student['student_type'] or 'Day Scholar',
-                        "has_transport": student['has_transport'] or 0,
+                    cloud_sync.queue_transaction_locally('student', adm_no, 'UPDATE', {
+                        "admission_no": adm_no,
+                        "roll_no": student['roll_no'] or '' if student else '',
+                        "student_name": student['student_name'] if student else '',
+                        "branch": student['branch'] or 'Branch 1' if student else 'Branch 1',
+                        "gender": student['gender'] or 'Male' if student else 'Male',
+                        "class_name": student['class_name'] if student else '',
+                        "section": student['section'] or 'A' if student else 'A',
+                        "academic_year": student['academic_year'] or '2026-2027' if student else '2026-2027',
+                        "student_type": student['student_type'] or 'Day Scholar' if student else 'Day Scholar',
+                        "has_transport": student['has_transport'] or 0 if student else 0,
                         "transport_fee": tr_fee,
-                        "bus_route": student['bus_route'] or '',
-                        "parent_name": student['parent_name'],
-                        "parent_phone": student['parent_phone'],
-                        "parent_email": student['parent_email'] or '',
-                        "address": student['address'] or '',
+                        "bus_route": student['bus_route'] or '' if student else '',
+                        "parent_name": student['parent_name'] if student else '',
+                        "parent_phone": student['parent_phone'] if student else '',
+                        "parent_email": student['parent_email'] or '' if student else '',
+                        "address": student['address'] or '' if student else '',
                         "standard_fee": std_fee,
                         "discount_amount": calc_discount,
                         "final_agreed_fee": new_fee,
                         "discount_status": 'Approved',
-                        "admission_date": student['admission_date'],
-                        "created_by": student['created_by'],
-                        "status": student['status'],
+                        "admission_date": student['admission_date'] if student else '',
+                        "created_by": student['created_by'] if student else '',
+                        "status": student['status'] if student else 'Active',
                         "previous_due": prev_due
-                    }, student['branch'] or 'Branch 1')
-                    cloud_sync.queue_transaction_locally('payments_total_agreed', req_row['admission_no'], 'UPDATE', {
-                        "admission_no": req_row['admission_no'],
+                    }, (student['branch'] if student else None) or 'Branch 1')
+                    cloud_sync.queue_transaction_locally('payments_total_agreed', adm_no, 'UPDATE', {
+                        "admission_no": adm_no,
                         "total_agreed_fee": new_fee
-                    }, student['branch'] or 'Branch 1')
+                    }, (student['branch'] if student else None) or 'Branch 1')
                 except Exception:
                     pass
 
@@ -2119,8 +2124,8 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                     vals.append(proposed[k])
 
             if updates:
-                vals.append(student_id)
-                cursor.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = ?", vals)
+                vals.append(adm_no)
+                cursor.execute(f"UPDATE students SET {', '.join(updates)} WHERE admission_no = ?", vals)
 
         # Queue cloud sync for the request decision
         try:
@@ -2221,9 +2226,9 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
     cursor.execute("""
         UPDATE students 
         SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved'
-        WHERE id = ?
-    """, (new_fee, calc_discount, req.student_id))
-    cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_fee, req.student_id))
+        WHERE admission_no = ?
+    """, (new_fee, calc_discount, student['admission_no']))
+    cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, student['admission_no']))
 
     # Record Activity Log
     sess_id = (req.session_id or f"sess_{req.operator_user}").strip()
@@ -3348,12 +3353,12 @@ def execute_student_promotion(req: PromotionExecuteRequest, request: Request):
                 final_agreed_fee = ?,
                 previous_due = ?,
                 status = ?
-            WHERE id = ?
+            WHERE admission_no = ? OR id = ?
         """, (
             new_class, new_sec, req.to_year.strip(),
             stype, has_tr, tr_fee, b_route,
             base_fee, disc, new_agreed, carry_due,
-            new_status, item.student_id
+            new_status, student['admission_no'], item.student_id
         ))
 
         # Queue cloud sync for this updated student
