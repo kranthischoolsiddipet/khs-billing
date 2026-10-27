@@ -1153,8 +1153,22 @@ def add_staff_user(data: StaffUserCreate, operator_user: str = Query("admin")):
         VALUES (?, '', ?, 'T3', ?, 1)
     """, (mobile, data.full_name.strip().upper(), mobile))
 
+    new_id = cursor.lastrowid
     conn.commit()
     conn.close()
+
+    # Queue cloud sync for new staff user
+    try:
+        cloud_sync.queue_transaction_locally('user_account', mobile, 'INSERT', {
+            'username': mobile,
+            'full_name': data.full_name.strip().upper(),
+            'phone': mobile,
+            'user_id': new_id
+        }, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
     return {"status": "success", "message": f"Staff user {data.full_name.upper()} ({mobile}) added successfully!"}
 
 @app.post("/api/staff/update")
@@ -1169,10 +1183,12 @@ def update_staff_user(data: StaffUserUpdate):
     conn = get_db()
     cursor = conn.cursor()
 
-    user = cursor.execute("SELECT id, role FROM users WHERE id = ?", (data.user_id,)).fetchone()
+    user = cursor.execute("SELECT id, role, username FROM users WHERE id = ?", (data.user_id,)).fetchone()
     if not user:
         conn.close()
         raise HTTPException(status_code=404, detail="User not found")
+
+    old_uname = user['username']
 
     # Check mobile collision
     existing = cursor.execute("SELECT id FROM users WHERE (username = ? OR phone = ?) AND id != ?", (mobile, mobile, data.user_id)).fetchone()
@@ -1188,6 +1204,20 @@ def update_staff_user(data: StaffUserUpdate):
 
     conn.commit()
     conn.close()
+
+    # Queue cloud sync
+    try:
+        cloud_sync.queue_transaction_locally('user_account', mobile, 'UPDATE', {
+            'user_id': data.user_id,
+            'username': mobile,
+            'old_username': old_uname,
+            'full_name': data.full_name.strip().upper(),
+            'phone': mobile
+        }, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
     return {"status": "success", "message": f"Staff user details updated successfully!"}
 
 @app.post("/api/staff/delete")
@@ -1195,7 +1225,7 @@ def delete_staff_user(data: StaffUserDelete):
     conn = get_db()
     cursor = conn.cursor()
 
-    user = cursor.execute("SELECT id, role, full_name FROM users WHERE id = ?", (data.user_id,)).fetchone()
+    user = cursor.execute("SELECT id, role, full_name, username FROM users WHERE id = ?", (data.user_id,)).fetchone()
     if not user:
         conn.close()
         raise HTTPException(status_code=404, detail="User not found")
@@ -1204,9 +1234,21 @@ def delete_staff_user(data: StaffUserDelete):
         conn.close()
         raise HTTPException(status_code=403, detail="Cannot delete administrative accounts.")
 
+    del_username = user['username']
     cursor.execute("DELETE FROM users WHERE id = ?", (data.user_id,))
     conn.commit()
     conn.close()
+
+    # Immediately push deletion to Turso Cloud so Render and all instances sync instantly
+    try:
+        cloud_sync.queue_transaction_locally('user_account', del_username, 'DELETE', {
+            'user_id': data.user_id,
+            'username': del_username
+        }, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
     return {"status": "success", "message": f"User {user['full_name']} has been permanently removed."}
 
 @app.post("/api/staff/toggle-status")
@@ -1214,7 +1256,7 @@ def toggle_staff_status(data: StaffStatusToggle):
     conn = get_db()
     cursor = conn.cursor()
 
-    user = cursor.execute("SELECT role FROM users WHERE id = ?", (data.user_id,)).fetchone()
+    user = cursor.execute("SELECT role, username FROM users WHERE id = ?", (data.user_id,)).fetchone()
     if not user:
         conn.close()
         raise HTTPException(status_code=404, detail="User not found")
@@ -1222,6 +1264,17 @@ def toggle_staff_status(data: StaffStatusToggle):
     cursor.execute("UPDATE users SET is_active = ? WHERE id = ?", (data.is_active, data.user_id))
     conn.commit()
     conn.close()
+
+    # Queue cloud sync for active/blocked toggle
+    try:
+        cloud_sync.queue_transaction_locally('user_status', user['username'], 'UPDATE', {
+            'user_id': data.user_id,
+            'username': user['username'],
+            'is_active': data.is_active
+        }, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
 
     action_label = "Unblocked / Active" if data.is_active == 1 else "Blocked"
     return {"status": "success", "message": f"User access status updated to: {action_label}"}

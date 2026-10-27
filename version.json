@@ -1,7 +1,7 @@
 {
-  "version": "1.1.7",
+  "version": "1.1.8",
   "released_at": "2026-10-27",
-  "notes": "Added Agreed School Fee Revision module: Direct instant fee revision with audit logging for Admin (T1/T2) and Request-Approval workflow for Front Desk Cashiers (T3)",
+  "notes": "Added real-time bi-directional cloud synchronization for staff user management (Add, Edit, Delete, and Block/Unblock actions immediately propagate between Desktop App and Render Cloud Portal)",
   "files": [
     "index.html",
     "app.js",

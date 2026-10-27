@@ -61,10 +61,11 @@ def normalize_turso_url(url: str) -> str:
         u = u + "/v2/pipeline"
     return u
 
-def pull_cloud_data_into_local_db(sync_users: bool = False):
+def pull_cloud_data_into_local_db(sync_users: bool = True):
     """
     Pulls fee_structures, students, payments, and logs from Turso Cloud Database into local SQLite.
-    If sync_users is False (default periodic cycle), user session_tokens are NOT overwritten so active logins are preserved!
+    If sync_users is True, users list is synced and pruned to match the Cloud Database,
+    while preserving active session_tokens on the current machine!
     """
     cfg = get_sync_config()
     if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
@@ -74,13 +75,17 @@ def pull_cloud_data_into_local_db(sync_users: bool = False):
     cur = conn.cursor()
 
     try:
-        # 1. Pull Users (Only on initial startup or explicit sync, never during background 20s loop)
+        # 1. Pull Users (Synchronize users and delete users that were removed in the Cloud)
         if sync_users:
-            ok, res = execute_remote_turso_queries([{"sql": "SELECT username, password_hash, full_name, role, phone, is_active, totp_secret, session_token, COALESCE(can_promote, 0) FROM users;"}], cfg['db_url'], cfg['auth_token'])
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT id, username, password_hash, full_name, role, phone, is_active, totp_secret, session_token, COALESCE(can_promote, 0) FROM users;"}], cfg['db_url'], cfg['auth_token'])
             if ok and res.get('results'):
                 rows = res['results'][0]['response']['result']['rows']
+                remote_usernames = []
                 for r in rows:
                     vals = [c.get('value') for c in r]
+                    u_name = vals[1]
+                    remote_usernames.append(u_name)
+                    # Don't overwrite active session_token locally if cloud has empty string
                     cur.execute("""
                         INSERT INTO users (username, password_hash, full_name, role, phone, is_active, totp_secret, session_token, can_promote)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -91,8 +96,17 @@ def pull_cloud_data_into_local_db(sync_users: bool = False):
                             phone=excluded.phone,
                             is_active=excluded.is_active,
                             totp_secret=excluded.totp_secret,
-                            can_promote=excluded.can_promote;
-                    """, vals)
+                            can_promote=excluded.can_promote,
+                            session_token=CASE 
+                                WHEN excluded.session_token != '' THEN excluded.session_token 
+                                ELSE users.session_token 
+                            END;
+                    """, vals[1:])
+
+                # Prune local T3 staff users that no longer exist on Turso Cloud
+                if remote_usernames:
+                    placeholders = ','.join('?' * len(remote_usernames))
+                    cur.execute(f"DELETE FROM users WHERE role = 'T3' AND username NOT IN ({placeholders})", remote_usernames)
 
         # 2. Pull Fee Structures
         ok, res = execute_remote_turso_queries([{"sql": "SELECT class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee, residential_fee, default_transport_fee, total_base_fee FROM fee_structures;"}], cfg['db_url'], cfg['auth_token'])
@@ -478,6 +492,37 @@ def push_local_outbox_to_cloud():
             queries.append({
                 "sql": "UPDATE users SET can_promote = ? WHERE id = ?;",
                 "args": [int(data.get('can_promote', 0)), int(data.get('user_id', 0))]
+            })
+
+        elif etype == 'user_account' and op == 'INSERT':
+            queries.append({
+                "sql": """
+                    INSERT INTO users (username, password_hash, full_name, role, phone, is_active)
+                    VALUES (?, '', ?, 'T3', ?, 1)
+                    ON CONFLICT(username) DO UPDATE SET
+                        full_name = excluded.full_name,
+                        phone = excluded.phone,
+                        is_active = 1;
+                """,
+                "args": [data.get('username'), data.get('full_name'), data.get('phone')]
+            })
+
+        elif etype == 'user_account' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE users SET full_name = ?, username = ?, phone = ? WHERE id = ? OR username = ?;",
+                "args": [data.get('full_name'), data.get('username'), data.get('phone'), int(data.get('user_id', 0)), data.get('old_username', data.get('username'))]
+            })
+
+        elif etype == 'user_account' and op == 'DELETE':
+            queries.append({
+                "sql": "DELETE FROM users WHERE username = ? OR id = ?;",
+                "args": [data.get('username'), int(data.get('user_id', 0))]
+            })
+
+        elif etype == 'user_status' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE users SET is_active = ? WHERE id = ? OR username = ?;",
+                "args": [int(data.get('is_active', 1)), int(data.get('user_id', 0)), data.get('username', '')]
             })
 
         elif etype == 'payment' and op == 'INSERT':
