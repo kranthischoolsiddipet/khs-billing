@@ -1,7 +1,7 @@
 {
-  "version": "1.1.9",
+  "version": "1.2.0",
   "released_at": "2026-10-27",
-  "notes": "Fixed T3 cashier registration duplicate check allowing Super Admin (T1) and Cashier (T3) accounts to coexist with real-time cloud sync",
+  "notes": "Enabled direct real-time Turso Cloud synchronization for TOTP Authenticator keys and widened clock drift tolerance so 2FA codes work immediately on Web Portal and Desktop App.",
   "files": [
     "index.html",
     "app.js",

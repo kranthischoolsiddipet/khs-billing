@@ -408,6 +408,20 @@ def sync_user_session_token_direct(username: str, session_token: str):
         print(f"[SYNC TOKEN DIRECT ERROR]: {e}")
         return False
 
+def sync_user_totp_secret_direct(username: str, totp_secret: str):
+    """Immediately updates user's totp_secret on Turso Cloud so 2FA works across web and desktop without delay"""
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        sql = "UPDATE users SET totp_secret = ? WHERE username = ?;"
+        args = [totp_secret.strip(), username.strip()]
+        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        return ok
+    except Exception as e:
+        print(f"[SYNC TOTP DIRECT ERROR]: {e}")
+        return False
+
 def push_local_outbox_to_cloud():
     """
     Pushes pending rows from sync_queue to Cloud Database via HTTP API.
@@ -492,6 +506,12 @@ def push_local_outbox_to_cloud():
             queries.append({
                 "sql": "UPDATE users SET can_promote = ? WHERE id = ?;",
                 "args": [int(data.get('can_promote', 0)), int(data.get('user_id', 0))]
+            })
+
+        elif etype == 'user_totp' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE users SET totp_secret = ? WHERE username = ? OR id = ?;",
+                "args": [data.get('totp_secret', ''), data.get('username', ''), int(data.get('user_id', 0))]
             })
 
         elif etype == 'user_account' and op == 'INSERT':

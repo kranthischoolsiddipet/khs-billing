@@ -524,10 +524,9 @@ def check_auth_method(data: RequestOtpRequest):
         user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR (phone = ? AND role = 'T3')", (mobile, mobile)).fetchone()
         if not user:
             user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
-    conn.close()
 
-    if not user:
-        # Self-healing safeguard: if user is not in local SQLite (e.g. freshly started cloud container), pull from Turso cloud on the fly!
+    if not user or not user['totp_secret']:
+        # Self-healing safeguard: if user or their totp_secret is not in local SQLite (e.g. freshly started cloud container or updated on another machine), pull from Turso cloud on the fly!
         try:
             cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
             if is_sa:
@@ -538,6 +537,7 @@ def check_auth_method(data: RequestOtpRequest):
                     user = cursor.execute("SELECT id, username, full_name, role, phone, is_active, totp_secret FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
         except Exception:
             pass
+    conn.close()
 
     if not user:
         raise HTTPException(status_code=403, detail=f"No account registered for {raw_input}.")
@@ -575,6 +575,18 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
         if not user:
             user = cursor.execute("SELECT * FROM users WHERE (username = ? OR phone = ?) AND is_active = 1", (mobile, mobile)).fetchone()
 
+    if not user or not user['totp_secret']:
+        try:
+            cloud_sync.pull_cloud_data_into_local_db(sync_users=True)
+            if is_sa:
+                user = cursor.execute("SELECT * FROM users WHERE (username = ? OR (phone = ? AND role = 'T1')) AND is_active = 1", (f"SA{mobile}", mobile)).fetchone()
+            else:
+                user = cursor.execute("SELECT * FROM users WHERE (username = ? OR (phone = ? AND role = 'T3')) AND is_active = 1", (mobile, mobile)).fetchone()
+                if not user:
+                    user = cursor.execute("SELECT * FROM users WHERE (username = ? OR phone = ?) AND is_active = 1", (mobile, mobile)).fetchone()
+        except Exception:
+            pass
+
     if not user:
         conn.close()
         log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Unknown User)", dev_browser, raw_input, 401, "POST")
@@ -583,7 +595,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
     # 1. First check if user has TOTP (Google/Microsoft Authenticator) enabled
     if user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
         totp = pyotp.TOTP(user['totp_secret'].strip())
-        if totp.verify(otp_input, valid_window=1):
+        if totp.verify(otp_input, valid_window=2):
             sess_token = secrets.token_hex(16)
             cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
             conn.commit()
@@ -1028,6 +1040,18 @@ def get_authenticator_qr(user_id: int):
         cursor.execute("UPDATE users SET totp_secret = ? WHERE id = ?", (secret, user_id))
         conn.commit()
 
+        # Immediately push new TOTP secret to Turso Cloud so Web Portal accepts the Authenticator codes
+        try:
+            cloud_sync.sync_user_totp_secret_direct(user['username'], secret)
+            cloud_sync.queue_transaction_locally('user_totp', user['username'], 'UPDATE', {
+                'user_id': user_id,
+                'username': user['username'],
+                'totp_secret': secret
+            }, "Branch 1")
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
+
     conn.close()
 
     label = f"{user['full_name']} ({user['phone'] or user['username']})"
@@ -1065,10 +1089,24 @@ def reset_authenticator(user_id: int):
     """Admin reset authenticator (e.g. if staff changed phone)"""
     conn = get_db()
     cursor = conn.cursor()
+    user = cursor.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
     new_secret = pyotp.random_base32()
     cursor.execute("UPDATE users SET totp_secret = ? WHERE id = ?", (new_secret, user_id))
     conn.commit()
     conn.close()
+
+    if user:
+        try:
+            cloud_sync.sync_user_totp_secret_direct(user['username'], new_secret)
+            cloud_sync.queue_transaction_locally('user_totp', user['username'], 'UPDATE', {
+                'user_id': user_id,
+                'username': user['username'],
+                'totp_secret': new_secret
+            }, "Branch 1")
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
+
     return {
         "status": "success",
         "message": "Authenticator reset successfully. New QR code generated."
