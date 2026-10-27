@@ -1142,11 +1142,11 @@ def add_staff_user(data: StaffUserCreate, operator_user: str = Query("admin")):
         conn.close()
         raise HTTPException(status_code=400, detail="Maximum limit of 10 staff users reached. Please remove an existing user to add a new one.")
 
-    # Check if mobile exists
-    existing = cursor.execute("SELECT id FROM users WHERE username = ? OR phone = ?", (mobile, mobile)).fetchone()
+    # Check if a T3 billing staff user with this mobile already exists
+    existing = cursor.execute("SELECT id FROM users WHERE (username = ? OR phone = ?) AND role = 'T3'", (mobile, mobile)).fetchone()
     if existing:
         conn.close()
-        raise HTTPException(status_code=400, detail="A user with this mobile number is already registered.")
+        raise HTTPException(status_code=400, detail="A billing staff cashier with this mobile number is already registered.")
 
     cursor.execute("""
         INSERT INTO users (username, password_hash, full_name, role, phone, is_active)

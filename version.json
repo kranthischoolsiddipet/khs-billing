@@ -1,7 +1,7 @@
 {
-  "version": "1.1.8",
+  "version": "1.1.9",
   "released_at": "2026-10-27",
-  "notes": "Added real-time bi-directional cloud synchronization for staff user management (Add, Edit, Delete, and Block/Unblock actions immediately propagate between Desktop App and Render Cloud Portal)",
+  "notes": "Fixed T3 cashier registration duplicate check allowing Super Admin (T1) and Cashier (T3) accounts to coexist with real-time cloud sync",
   "files": [
     "index.html",
     "app.js",
