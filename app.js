@@ -321,7 +321,18 @@ function applyUserRoleUI() {
   // Strictly Admin-only tabs: discounts (Approvals), reports, staff
   // Import tab is now available to both T3 and Admin!
   const isAdmin = (currentUser.role === 'T1' || currentUser.role === 'T2');
+  const isSuperAdmin = (currentUser.role === 'T1');
   const canPromote = isAdmin || (currentUser.role === 'T3' && Number(currentUser.can_promote) === 1);
+
+  // Show Change PIN button strictly for Super Admin (T1)
+  const pinBtn = document.getElementById('btnSuperAdminChangePin');
+  if (pinBtn) {
+    if (isSuperAdmin) {
+      pinBtn.classList.remove('hidden');
+    } else {
+      pinBtn.classList.add('hidden');
+    }
+  }
   
   // Strictly Admin-only tabs: discounts (Approvals Queue), staff user management, and logs (Audit & Session logs)
   const adminOnlyTabIds = ['discounts', 'staff', 'logs', 'iplogs'];
@@ -2306,7 +2317,20 @@ async function handleContinueMobileLogin(e) {
     codeInput.value = "";
     codeInput.focus();
 
-    if (data.has_authenticator) {
+    if (data.is_super_admin) {
+      notice.className = "bg-purple-50 p-3 rounded-xl border border-purple-200 text-xs text-purple-900 space-y-1";
+      notice.innerHTML = `
+        <div class="flex items-center space-x-1.5 font-bold text-purple-800">
+          <i class="fa-solid fa-key text-purple-600"></i>
+          <span>Super Admin Security PIN</span>
+        </div>
+        <p class="text-[11px] text-purple-700 leading-relaxed">
+          Please enter your <b>Personal 6-Digit PIN</b> to unlock Super Admin access.
+        </p>
+      `;
+      if (label) label.innerText = "Enter Super Admin 6-Digit PIN *";
+      if (codeInput) codeInput.placeholder = "Enter PIN (Default: 524796)";
+    } else if (data.has_authenticator) {
       notice.className = "bg-indigo-50 p-3 rounded-xl border border-indigo-200 text-xs text-indigo-900 space-y-1";
       notice.innerHTML = `
         <div class="flex items-center space-x-1.5 font-bold text-indigo-800">
@@ -2318,6 +2342,7 @@ async function handleContinueMobileLogin(e) {
         </p>
       `;
       if (label) label.innerText = "Enter 6-Digit Authenticator Code *";
+      if (codeInput) codeInput.placeholder = "6-digit code";
     } else {
       notice.className = "bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs text-amber-900 space-y-1";
       notice.innerHTML = `
@@ -4014,6 +4039,76 @@ async function executePromotionRollover() {
     btn.disabled = false;
     btn.innerHTML = originalHtml;
     alert("Server error executing promotion: " + err);
+  }
+}
+
+// ================= SUPER ADMIN CHANGE PIN MODAL =================
+
+function openChangePinModal() {
+  document.getElementById('currentPinInput').value = '';
+  document.getElementById('newPinInput').value = '';
+  document.getElementById('confirmNewPinInput').value = '';
+  document.getElementById('changePinModal').classList.remove('hidden');
+}
+
+function closeChangePinModal() {
+  document.getElementById('changePinModal').classList.add('hidden');
+}
+
+async function handleSuperAdminChangePin(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  if (!currentUser || currentUser.role !== 'T1') {
+    alert("Only Super Admin can change the PIN.");
+    return;
+  }
+
+  const oldPin = document.getElementById('currentPinInput').value.trim();
+  const newPin = document.getElementById('newPinInput').value.trim();
+  const confirmPin = document.getElementById('confirmNewPinInput').value.trim();
+
+  if (!oldPin) {
+    alert("Please enter your current PIN.");
+    return;
+  }
+  if (newPin.length < 4 || newPin.length > 10 || isNaN(newPin)) {
+    alert("New PIN must be 4 to 10 digits (numbers only).");
+    return;
+  }
+  if (newPin !== confirmPin) {
+    alert("New PIN and Confirm PIN do not match.");
+    return;
+  }
+
+  const btn = document.getElementById('btnSubmitChangePin');
+  btn.disabled = true;
+  btn.innerText = "Saving...";
+
+  try {
+    const res = await fetch('/api/admin/change-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operator_user: currentUser.username,
+        old_pin: oldPin,
+        new_pin: newPin,
+        session_id: sessionStorage.getItem('khs_session_id') || ''
+      })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    btn.innerText = "Save PIN";
+
+    if (!res.ok) {
+      alert(data.detail || "Failed to update PIN");
+      return;
+    }
+
+    alert(data.message || "PIN updated successfully!");
+    closeChangePinModal();
+  } catch (err) {
+    btn.disabled = false;
+    btn.innerText = "Save PIN";
+    alert("Server error changing PIN: " + err);
   }
 }
 

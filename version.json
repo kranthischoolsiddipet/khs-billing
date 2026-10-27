@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "released_at": "2026-10-27",
-  "notes": "Enabled direct real-time Turso Cloud synchronization for TOTP Authenticator keys and widened clock drift tolerance so 2FA codes work immediately on Web Portal and Desktop App.",
+  "notes": "Added Super Admin Personal 6-Digit PIN login (Default PIN: 524796) with in-app Change PIN modal for Super Admin, keeping Google Authenticator exclusively for T3 Cashiers.",
   "files": [
     "index.html",
     "app.js",

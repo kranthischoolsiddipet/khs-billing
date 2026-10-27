@@ -234,6 +234,12 @@ class PromotionExecuteRequest(BaseModel):
     operator_user: str = "admin"
     session_id: Optional[str] = ""
 
+class SuperAdminChangePinRequest(BaseModel):
+    operator_user: str
+    old_pin: str
+    new_pin: str
+    session_id: Optional[str] = ""
+
 class StaffUserUpdate(BaseModel):
     user_id: int
     full_name: str
@@ -544,6 +550,7 @@ def check_auth_method(data: RequestOtpRequest):
     if not user['is_active']:
         raise HTTPException(status_code=403, detail="Your access has been BLOCKED by Admin. Please contact Management.")
 
+    is_superadmin_user = (user['role'] == 'T1')
     has_totp = bool(user['totp_secret'] and len(user['totp_secret'].strip()) > 8)
 
     return {
@@ -551,7 +558,8 @@ def check_auth_method(data: RequestOtpRequest):
         "mobile": raw_input,
         "full_name": user['full_name'],
         "role": user['role'],
-        "has_authenticator": has_totp
+        "has_authenticator": has_totp,
+        "is_super_admin": is_superadmin_user
     }
 
 @app.post("/api/auth/verify-otp")
@@ -592,10 +600,66 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
         log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Unknown User)", dev_browser, raw_input, 401, "POST")
         raise HTTPException(status_code=401, detail="User not found or access blocked.")
 
-    # 1. First check if user has TOTP (Google/Microsoft Authenticator) enabled
+    # 1. Super Admin (T1) can log in directly using their personal 6-digit Secret PIN!
+    if user['role'] == 'T1':
+        # Default Super Admin PIN is 524796 if password_hash is not set
+        valid_pin = user['password_hash'].strip() if user['password_hash'] and len(user['password_hash'].strip()) >= 4 else "524796"
+        is_pin_valid = (otp_input == valid_pin)
+        
+        # Also support TOTP as an alternate fallback for Super Admin
+        if not is_pin_valid and user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
+            totp = pyotp.TOTP(user['totp_secret'].strip())
+            is_pin_valid = totp.verify(otp_input, valid_window=2)
+
+        if is_pin_valid:
+            sess_token = secrets.token_hex(16)
+            cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
+            conn.commit()
+            conn.close()
+
+            # Record audit login event
+            sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
+            record_activity_log(
+                session_id=sess_id,
+                username=user['username'],
+                full_name=user['full_name'],
+                role=user['role'],
+                branch="Branch 1",
+                action_type="LOGIN",
+                action_details="Super Admin logged in via Personal PIN",
+                ip_address=ip_addr,
+                device_browser=dev_browser
+            )
+            log_meaningful_ip_access(ip_addr, "Super Admin Login (PIN)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
+
+            try:
+                cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
+                cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
+            except Exception:
+                pass
+
+            user_dict = dict_from_row(user)
+            user_dict['session_token'] = sess_token
+            user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
+            return {
+                "status": "success",
+                "method": "pin",
+                "session_id": sess_id,
+                "session_token": sess_token,
+                "user": user_dict
+            }
+        else:
+            conn.close()
+            log_meaningful_ip_access(ip_addr, "Failed Super Admin Login (Invalid PIN)", dev_browser, raw_input, 401, "POST")
+            raise HTTPException(status_code=401, detail="Invalid Super Admin 6-Digit PIN. Please try again.")
+
+    # 2. Staff / Cashier (T3) check if user has TOTP (Google/Microsoft Authenticator) enabled
     if user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
         totp = pyotp.TOTP(user['totp_secret'].strip())
-        if totp.verify(otp_input, valid_window=2):
+        is_valid = totp.verify(otp_input, valid_window=2)
+        if not is_valid:
+            print(f"[AUTH DEBUG] Invalid OTP for {user['username']}. Input was '{otp_input}', Expected around: {totp.now()}")
+        if is_valid:
             sess_token = secrets.token_hex(16)
             cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
             conn.commit()
@@ -634,7 +698,7 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
                 "user": user_dict
             }
 
-    # 2. Check traditional OTP table (Fallback or setup mode)
+    # 3. Check traditional OTP table (Fallback or setup mode)
     otp_row = cursor.execute("""
         SELECT * FROM otps 
         WHERE mobile IN (?, ?) AND otp_code = ? AND is_used = 0
@@ -1403,6 +1467,61 @@ def force_logout_staff(data: StaffForceLogoutRequest, request: Request):
     return {
         "status": "success",
         "message": f"Successfully logged out active session for {target['full_name']} ({target['username']})."
+    }
+
+@app.post("/api/admin/change-pin")
+def change_superadmin_pin(data: SuperAdminChangePinRequest, request: Request):
+    """Allows Super Admin to update their personal login PIN"""
+    ip_addr, dev_browser = parse_client_info(request)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    user = cursor.execute("SELECT id, username, full_name, role, password_hash FROM users WHERE username = ? OR role = 'T1'", (data.operator_user.strip(),)).fetchone()
+    if not user or user['role'] != 'T1':
+        conn.close()
+        raise HTTPException(status_code=403, detail="Only Super Admin can update the Super Admin PIN.")
+
+    current_pin = user['password_hash'].strip() if user['password_hash'] and len(user['password_hash'].strip()) >= 4 else "524796"
+    if data.old_pin.strip() != current_pin:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Current PIN is incorrect.")
+
+    new_pin = data.new_pin.strip()
+    if len(new_pin) < 4 or len(new_pin) > 10 or not new_pin.isdigit():
+        conn.close()
+        raise HTTPException(status_code=400, detail="PIN must be 4 to 10 digits (numbers only).")
+
+    cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_pin, user['id']))
+    conn.commit()
+    conn.close()
+
+    # Sync new PIN to Turso Cloud immediately
+    try:
+        cloud_sync.sync_user_password_direct(user['username'], new_pin)
+        cloud_sync.queue_transaction_locally('user_password', user['username'], 'UPDATE', {
+            'user_id': user['id'],
+            'username': user['username'],
+            'password_hash': new_pin
+        }, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    record_activity_log(
+        session_id=data.session_id or f"sess_{int(datetime.now().timestamp())}",
+        username=user['username'],
+        full_name=user['full_name'],
+        role=user['role'],
+        branch="Branch 1",
+        action_type="SECURITY_UPDATE",
+        action_details="Super Admin changed personal login PIN",
+        ip_address=ip_addr,
+        device_browser=dev_browser
+    )
+
+    return {
+        "status": "success",
+        "message": "Super Admin PIN updated successfully! You can use your new PIN on all devices."
     }
 
 # ----------------- FEE STRUCTURE APIS (T1 & T2) -----------------
