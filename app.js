@@ -365,6 +365,12 @@ function applyUserRoleUI() {
     }
   }
 
+  // Update Revise Fee button label based on role
+  const btnReviseLabel = document.getElementById('btnReviseFeeLabel');
+  if (btnReviseLabel) {
+    btnReviseLabel.innerText = isAdmin ? "Revise Fee (Admin)" : "Request Fee Revision";
+  }
+
   // Update Fee Structure label and table column based on role
   const feeLabel = document.getElementById('tabFeeMasterLabel');
   if (feeLabel) {
@@ -632,7 +638,9 @@ async function selectStudent(studentId, isBackgroundPoll = false) {
         alertText.innerText = "This student admission has been CANCELLED / WITHDRAWN. Fee collections and modifications are disabled.";
         alertBox.classList.remove('hidden');
       } else if (data.pending_change) {
-        const reqType = data.pending_change.request_type === 'CANCEL_ADMISSION' ? 'Admission Cancellation' : 'Admission Details Edit';
+        let reqType = 'Admission Details Edit';
+        if (data.pending_change.request_type === 'CANCEL_ADMISSION') reqType = 'Admission Cancellation';
+        else if (data.pending_change.request_type === 'REVISE_FEE') reqType = 'Fee Revision';
         alertBox.className = "mt-2 p-2.5 rounded-xl text-xs font-bold border flex items-center space-x-2 bg-amber-50 border-amber-200 text-amber-800";
         if (alertIcon) alertIcon.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-600"></i>`;
         alertText.innerHTML = `<b>Waiting for Admin Approval</b> (${reqType} requested by ${data.pending_change.requested_by}: "${data.pending_change.reason}")`;
@@ -1302,15 +1310,21 @@ async function loadPendingAdmissionChanges() {
 
       rows.innerHTML = list.map(req => {
         const isCancel = req.request_type === 'CANCEL_ADMISSION';
-        const typeBadge = isCancel
-          ? `<span class="bg-rose-100 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-ban mr-1"></i>CANCEL ADMISSION</span>`
-          : `<span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-pen-to-square mr-1"></i>EDIT DETAILS</span>`;
+        const isReviseFee = req.request_type === 'REVISE_FEE';
+        let typeBadge = '';
+        if (isCancel) {
+          typeBadge = `<span class="bg-rose-100 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-ban mr-1"></i>CANCEL ADMISSION</span>`;
+        } else if (isReviseFee) {
+          typeBadge = `<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-file-invoice-dollar mr-1"></i>REVISE FEE</span>`;
+        } else {
+          typeBadge = `<span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-pen-to-square mr-1"></i>EDIT DETAILS</span>`;
+        }
 
         let currentSummary = `
           <div class="space-y-0.5">
             <p class="font-bold text-slate-800">${req.current_data.student_name || '--'} ${req.current_data.roll_no ? '<span class="text-[10px] text-indigo-700 font-mono">(Roll: ' + req.current_data.roll_no + ')</span>' : ''}</p>
             <p class="text-[10px] text-slate-500">${req.current_data.class_name || ''} ${req.current_data.section ? '- ' + req.current_data.section : ''} (${req.current_data.student_type || ''})</p>
-            <p class="text-[10px] text-slate-500">Parent: ${req.current_data.parent_name || ''} (${req.current_data.parent_phone || ''})</p>
+            <p class="text-[10px] text-slate-500 font-bold">Agreed Fee: ₹ ${Number(req.current_data.final_agreed_fee || 0).toLocaleString('en-IN')}</p>
           </div>
         `;
 
@@ -1320,6 +1334,18 @@ async function loadPendingAdmissionChanges() {
             <div class="text-rose-700 font-semibold space-y-0.5">
               <p class="font-bold">Reason: "${req.reason}"</p>
               <p class="text-[10px] text-slate-500">Proposed action: Permanently cancel admission record</p>
+            </div>
+          `;
+        } else if (isReviseFee) {
+          const prop = req.proposed_data || {};
+          const newFee = Number(prop.new_agreed_fee || 0);
+          const oldFee = Number(req.current_data.final_agreed_fee || 0);
+          const diff = newFee - oldFee;
+          proposedSummary = `
+            <div class="space-y-0.5">
+              <p class="font-extrabold text-amber-900 text-xs">Proposed Fee: ₹ ${newFee.toLocaleString('en-IN')} <span class="text-[10px] font-bold ${diff < 0 ? 'text-emerald-700' : 'text-rose-700'}">(${diff < 0 ? 'Discount: -₹ ' + Math.abs(diff).toLocaleString('en-IN') : '+₹ ' + diff.toLocaleString('en-IN')})</span></p>
+              <p class="text-[10px] text-slate-600">Previous Agreed: ₹ ${oldFee.toLocaleString('en-IN')}</p>
+              <p class="text-[10px] italic text-slate-600">Reason: "${req.reason}"</p>
             </div>
           `;
         } else {
@@ -1611,6 +1637,134 @@ async function submitRequestCancelForm(e) {
     selectStudent(currentStudent.id);
   } catch (err) {
     alert("Error submitting cancellation request: " + err);
+  }
+}
+
+// ================= REVISE AGREED ANNUAL FEE WORKFLOW =================
+
+function openReviseFeeModal() {
+  if (!currentStudent) return alert("Select a student first!");
+  const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
+
+  const modalTitle = document.getElementById('reviseFeeModalTitle');
+  const modalSub = document.getElementById('reviseFeeModalSubtitle');
+  const submitBtn = document.getElementById('btnSubmitReviseFeeText');
+
+  if (modalTitle) modalTitle.innerText = isAdmin ? "Revise Agreed Fee (Admin)" : "Request Fee Revision";
+  if (modalSub) modalSub.innerText = isAdmin ? "Apply new agreed fee immediately with audit trail" : "Submit proposed fee revision for School Admin approval";
+  if (submitBtn) submitBtn.innerText = isAdmin ? "Apply Fee Revision" : "Submit for Admin Approval";
+
+  const totalPaid = currentStudent.final_agreed_fee - (currentStudent._current_balance_due !== undefined ? currentStudent._current_balance_due : 0);
+
+  document.getElementById('rfStudentName').innerText = `${currentStudent.student_name} (${currentStudent.admission_no})`;
+  document.getElementById('rfCurrentAgreed').innerText = `₹ ${Number(currentStudent.final_agreed_fee).toLocaleString('en-IN')}`;
+  document.getElementById('rfTotalPaid').innerText = `₹ ${Number(totalPaid).toLocaleString('en-IN')}`;
+  document.getElementById('rfCurrentBalance').innerText = `₹ ${Number(currentStudent._current_balance_due || 0).toLocaleString('en-IN')}`;
+
+  document.getElementById('rfNewAgreedInput').value = currentStudent.final_agreed_fee;
+  document.getElementById('rfReasonInput').value = '';
+  document.getElementById('rfNewBalanceHint').innerText = '';
+
+  document.getElementById('reviseFeeModal').classList.remove('hidden');
+}
+
+function closeReviseFeeModal() {
+  document.getElementById('reviseFeeModal').classList.add('hidden');
+}
+
+function updateRevisedBalancePreview() {
+  if (!currentStudent) return;
+  const newAgreed = parseFloat(document.getElementById('rfNewAgreedInput').value) || 0;
+  const totalPaid = currentStudent.final_agreed_fee - (currentStudent._current_balance_due !== undefined ? currentStudent._current_balance_due : 0);
+  const hintEl = document.getElementById('rfNewBalanceHint');
+
+  if (newAgreed < totalPaid) {
+    hintEl.innerHTML = `<span class="text-rose-600 font-bold">Error: Cannot be less than already paid amount (₹ ${Number(totalPaid).toLocaleString('en-IN')})</span>`;
+  } else {
+    const newBal = newAgreed - totalPaid;
+    hintEl.innerHTML = `<span class="text-emerald-700 font-bold">New Balance Due will be: ₹ ${Number(newBal).toLocaleString('en-IN')}</span>`;
+  }
+}
+
+async function handleReviseFeeFormSubmit(e) {
+  e.preventDefault();
+  if (!currentStudent) return;
+
+  const newFee = parseFloat(document.getElementById('rfNewAgreedInput').value) || 0;
+  const reason = document.getElementById('rfReasonInput').value.trim();
+  const totalPaid = currentStudent.final_agreed_fee - (currentStudent._current_balance_due !== undefined ? currentStudent._current_balance_due : 0);
+
+  if (newFee <= 0) {
+    return alert("Please enter a valid agreed fee amount.");
+  }
+  if (newFee < totalPaid) {
+    return alert(`New agreed fee cannot be less than the amount already paid by parent (₹ ${Number(totalPaid).toLocaleString('en-IN')}).`);
+  }
+  if (!reason) {
+    return alert("Please enter the reason for this fee revision.");
+  }
+
+  const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
+  const submitBtn = document.getElementById('btnSubmitReviseFee');
+  const originalHtml = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...`;
+
+  try {
+    if (isAdmin) {
+      // Admin: Direct Revision
+      const res = await fetch('/api/students/revise-fee-direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: currentStudent.id,
+          new_agreed_fee: newFee,
+          reason: reason,
+          operator_user: currentUser.username,
+          session_id: sessionStorage.getItem('khs_session_id') || ''
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Failed to revise agreed fee");
+        return;
+      }
+
+      alert(`Fee Revision Applied Successfully!\n\n${data.message}`);
+      closeReviseFeeModal();
+      selectStudent(currentStudent.id);
+    } else {
+      // T3 Cashier: Submit Request for Admin Approval
+      const res = await fetch(`/api/admissions/request-change?operator_user=${currentUser ? currentUser.username : 'frontdesk'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: currentStudent.id,
+          request_type: 'REVISE_FEE',
+          reason: reason,
+          proposed_data: {
+            new_agreed_fee: newFee,
+            previous_agreed_fee: currentStudent.final_agreed_fee
+          }
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || "Failed to submit fee revision request");
+        return;
+      }
+
+      alert(`Request Submitted!\n\n${data.message}`);
+      closeReviseFeeModal();
+      selectStudent(currentStudent.id);
+    }
+  } catch (err) {
+    alert("Error submitting fee revision: " + err);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalHtml;
   }
 }
 

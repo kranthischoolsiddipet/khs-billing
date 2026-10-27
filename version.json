@@ -1,7 +1,7 @@
 {
-  "version": "1.1.6",
+  "version": "1.1.7",
   "released_at": "2026-10-27",
-  "notes": "Added Student Promotion & Annual Year Rollover tab with Previous Due automatic carry-forward, progression mapping (Nursery to Class 10/Graduated), and granular Admin-delegated permissions for designated T3 Cashiers",
+  "notes": "Added Agreed School Fee Revision module: Direct instant fee revision with audit logging for Admin (T1/T2) and Request-Approval workflow for Front Desk Cashiers (T3)",
   "files": [
     "index.html",
     "app.js",

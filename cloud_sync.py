@@ -502,6 +502,12 @@ def push_local_outbox_to_cloud():
                 ]
             })
 
+        elif etype == 'payments_total_agreed' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?;",
+                "args": [float(data.get('total_agreed_fee', 0.0)), data.get('admission_no')]
+            })
+
         elif etype == 'activity_log' and op == 'INSERT':
             queries.append({
                 "sql": """

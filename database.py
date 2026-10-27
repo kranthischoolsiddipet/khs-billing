@@ -126,9 +126,9 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         student_id INTEGER NOT NULL,
         admission_no TEXT NOT NULL,
-        request_type TEXT NOT NULL, -- 'MODIFY_DETAILS' or 'CANCEL_ADMISSION'
+        request_type TEXT NOT NULL, -- 'MODIFY_DETAILS', 'CANCEL_ADMISSION', or 'REVISE_FEE'
         current_data TEXT NOT NULL, -- JSON snapshot of current student state
-        proposed_data TEXT NOT NULL, -- JSON snapshot of proposed modified state (or cancellation meta)
+        proposed_data TEXT NOT NULL, -- JSON snapshot of proposed modified state (or cancellation meta / new agreed fee)
         reason TEXT NOT NULL,
         requested_by TEXT NOT NULL,
         status TEXT DEFAULT 'Pending', -- 'Pending', 'Approved', 'Rejected'

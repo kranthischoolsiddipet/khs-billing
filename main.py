@@ -162,9 +162,16 @@ class DiscountActionRequest(BaseModel):
 
 class AdmissionChangeRequest(BaseModel):
     student_id: int
-    request_type: str # 'MODIFY_DETAILS' or 'CANCEL_ADMISSION'
+    request_type: str # 'MODIFY_DETAILS', 'CANCEL_ADMISSION', or 'REVISE_FEE'
     reason: str
     proposed_data: Optional[dict] = {}
+
+class FeeRevisionDirectRequest(BaseModel):
+    student_id: int
+    new_agreed_fee: float
+    reason: str
+    operator_user: Optional[str] = "admin"
+    session_id: Optional[str] = ""
 
 class AdmissionChangeActionRequest(BaseModel):
     request_id: int
@@ -1702,6 +1709,59 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
 
         if req_row['request_type'] == 'CANCEL_ADMISSION':
             cursor.execute("UPDATE students SET status = 'Cancelled' WHERE id = ?", (student_id,))
+        elif req_row['request_type'] == 'REVISE_FEE':
+            proposed = json.loads(req_row['proposed_data'] or "{}")
+            new_fee = float(proposed.get('new_agreed_fee', 0.0))
+            if new_fee > 0:
+                # Recalculate discount if standard_fee > new_fee
+                student = cursor.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+                std_fee = float(student['standard_fee']) if student else new_fee
+                tr_fee = float(student['transport_fee'] or 0.0) if student else 0.0
+                prev_due = float(student['previous_due'] or 0.0) if student else 0.0
+                calc_discount = max(0.0, (std_fee + tr_fee + prev_due) - new_fee)
+
+                cursor.execute("""
+                    UPDATE students 
+                    SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved' 
+                    WHERE id = ?
+                """, (new_fee, calc_discount, student_id))
+                cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_fee, student_id))
+
+                # Queue cloud sync
+                try:
+                    cloud_sync.queue_transaction_locally('student', req_row['admission_no'], 'UPDATE', {
+                        "admission_no": req_row['admission_no'],
+                        "roll_no": student['roll_no'] or '',
+                        "student_name": student['student_name'],
+                        "branch": student['branch'] or 'Branch 1',
+                        "gender": student['gender'] or 'Male',
+                        "class_name": student['class_name'],
+                        "section": student['section'] or 'A',
+                        "academic_year": student['academic_year'] or '2026-2027',
+                        "student_type": student['student_type'] or 'Day Scholar',
+                        "has_transport": student['has_transport'] or 0,
+                        "transport_fee": tr_fee,
+                        "bus_route": student['bus_route'] or '',
+                        "parent_name": student['parent_name'],
+                        "parent_phone": student['parent_phone'],
+                        "parent_email": student['parent_email'] or '',
+                        "address": student['address'] or '',
+                        "standard_fee": std_fee,
+                        "discount_amount": calc_discount,
+                        "final_agreed_fee": new_fee,
+                        "discount_status": 'Approved',
+                        "admission_date": student['admission_date'],
+                        "created_by": student['created_by'],
+                        "status": student['status'],
+                        "previous_due": prev_due
+                    }, student['branch'] or 'Branch 1')
+                    cloud_sync.queue_transaction_locally('payments_total_agreed', req_row['admission_no'], 'UPDATE', {
+                        "admission_no": req_row['admission_no'],
+                        "total_agreed_fee": new_fee
+                    }, student['branch'] or 'Branch 1')
+                except Exception:
+                    pass
+
         elif req_row['request_type'] == 'MODIFY_DETAILS':
             proposed = json.loads(req_row['proposed_data'] or "{}")
             # Updatable fields: student_name, roll_no, gender, class_name, section, student_type, has_transport, transport_fee, bus_route, parent_name, parent_phone, parent_email, address
@@ -1733,6 +1793,114 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
         conn.commit()
         conn.close()
         return {"status": "success", "message": f"Admission change request has been REJECTED."}
+
+@app.post("/api/students/revise-fee-direct")
+def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
+    """
+    Direct fee revision by Admin (T1 / T2):
+    Immediately revises agreed fee, updates payment schedule, logs audit trail, and syncs cloud.
+    """
+    ip_addr, dev_browser = parse_client_info(request)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Verify operator has T1/T2 privilege
+    op = cursor.execute("SELECT id, username, role, full_name FROM users WHERE username = ?", (req.operator_user.strip(),)).fetchone()
+    if not op or op['role'] not in ['T1', 'T2']:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Direct fee revision is restricted to School Administrators.")
+
+    student = cursor.execute("""
+        SELECT s.*, 
+            COALESCE((SELECT SUM(amount_paid) FROM payments WHERE student_id = s.id), 0.0) as total_paid
+        FROM students s
+        WHERE s.id = ?
+    """, (req.student_id,)).fetchone()
+
+    if not student:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    new_fee = round(float(req.new_agreed_fee), 2)
+    total_paid = float(student['total_paid'] or 0.0)
+
+    if new_fee < total_paid:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Revised fee (₹ {new_fee:,.0f}) cannot be less than the amount already paid (₹ {total_paid:,.0f}).")
+
+    old_agreed = float(student['final_agreed_fee'])
+    std_fee = float(student['standard_fee']) if student['standard_fee'] else new_fee
+    tr_fee = float(student['transport_fee'] or 0.0)
+    prev_due = float(student['previous_due'] or 0.0)
+    calc_discount = max(0.0, (std_fee + tr_fee + prev_due) - new_fee)
+
+    cursor.execute("""
+        UPDATE students 
+        SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved'
+        WHERE id = ?
+    """, (new_fee, calc_discount, req.student_id))
+    cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_fee, req.student_id))
+
+    # Record Activity Log
+    sess_id = (req.session_id or f"sess_{req.operator_user}").strip()
+    record_activity_log(
+        session_id=sess_id,
+        username=op['username'],
+        full_name=op['full_name'],
+        role=op['role'],
+        branch=student['branch'] or "Branch 1",
+        action_type="FEE_REVISION",
+        action_details=f"Admin revised agreed fee from ₹ {old_agreed:,.0f} to ₹ {new_fee:,.0f} for {student['student_name']} ({student['admission_no']}). Reason: {req.reason.strip()}",
+        entity_id=student['admission_no'],
+        amount=new_fee,
+        ip_address=ip_addr,
+        device_browser=dev_browser
+    )
+
+    conn.commit()
+    conn.close()
+
+    # Queue cloud sync
+    try:
+        cloud_sync.queue_transaction_locally('student', student['admission_no'], 'UPDATE', {
+            "admission_no": student['admission_no'],
+            "roll_no": student['roll_no'] or '',
+            "student_name": student['student_name'],
+            "branch": student['branch'] or 'Branch 1',
+            "gender": student['gender'] or 'Male',
+            "class_name": student['class_name'],
+            "section": student['section'] or 'A',
+            "academic_year": student['academic_year'] or '2026-2027',
+            "student_type": student['student_type'] or 'Day Scholar',
+            "has_transport": student['has_transport'] or 0,
+            "transport_fee": tr_fee,
+            "bus_route": student['bus_route'] or '',
+            "parent_name": student['parent_name'],
+            "parent_phone": student['parent_phone'],
+            "parent_email": student['parent_email'] or '',
+            "address": student['address'] or '',
+            "standard_fee": std_fee,
+            "discount_amount": calc_discount,
+            "final_agreed_fee": new_fee,
+            "discount_status": 'Approved',
+            "admission_date": student['admission_date'],
+            "created_by": student['created_by'],
+            "status": student['status'],
+            "previous_due": prev_due
+        }, student['branch'] or 'Branch 1')
+        cloud_sync.queue_transaction_locally('payments_total_agreed', student['admission_no'], 'UPDATE', {
+            "admission_no": student['admission_no'],
+            "total_agreed_fee": new_fee
+        }, student['branch'] or 'Branch 1')
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "old_agreed_fee": old_agreed,
+        "new_agreed_fee": new_fee,
+        "message": f"Successfully updated agreed fee to ₹ {new_fee:,.0f} for {student['student_name']}."
+    }
 
 # ----------------- PAYMENTS & INSTALLMENTS (T3) -----------------
 

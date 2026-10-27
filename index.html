@@ -303,6 +303,10 @@
 
               <!-- Student Governance Action Buttons -->
               <div class="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                <button type="button" onclick="openReviseFeeModal()" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-2.5 py-1.5 rounded-xl transition flex items-center space-x-1" title="Revise or request revision of agreed annual fee">
+                  <i class="fa-solid fa-file-invoice-dollar text-amber-600"></i>
+                  <span id="btnReviseFeeLabel">Revise Fee</span>
+                </button>
                 <button type="button" onclick="openRequestEditModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-2.5 py-1.5 rounded-xl transition flex items-center space-x-1" title="Request Admin Approval to modify student details">
                   <i class="fa-solid fa-user-pen"></i>
                   <span>Request Edit</span>
@@ -1751,6 +1755,72 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL: REVISE AGREED ANNUAL FEE ================= -->
+  <div id="reviseFeeModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+      <div class="border-b border-slate-200 pb-3 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-sm font-bold">
+            <i class="fa-solid fa-file-invoice-dollar"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-extrabold text-slate-900" id="reviseFeeModalTitle">Revise Agreed Fee</h3>
+            <p class="text-[10px] text-slate-500" id="reviseFeeModalSubtitle">Annual fee concession / renegotiation</p>
+          </div>
+        </div>
+        <button onclick="closeReviseFeeModal()" class="text-slate-400 hover:text-slate-600 text-sm">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Current Fee & Paid Snapshot -->
+      <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1.5">
+        <div class="flex justify-between">
+          <span class="text-slate-500">Student:</span>
+          <span class="font-extrabold text-slate-800" id="rfStudentName">--</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Current Agreed Fee:</span>
+          <span class="font-bold text-slate-900" id="rfCurrentAgreed">₹ 0</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-500">Total Already Paid:</span>
+          <span class="font-bold text-emerald-700" id="rfTotalPaid">₹ 0</span>
+        </div>
+        <div class="flex justify-between border-t border-slate-200 pt-1 text-[11px]">
+          <span class="text-slate-400">Current Balance:</span>
+          <span class="font-bold text-rose-600" id="rfCurrentBalance">₹ 0</span>
+        </div>
+      </div>
+
+      <form onsubmit="handleReviseFeeFormSubmit(event)" class="space-y-3">
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">New Agreed Annual Fee (₹) *</label>
+          <input type="text" id="rfNewAgreedInput" required oninput="this.value = this.value.replace(/[^0-9]/g, ''); updateRevisedBalancePreview();" placeholder="Enter new agreed amount" class="w-full px-3 py-2 text-sm font-mono font-black text-indigo-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500">
+          <p id="rfNewBalanceHint" class="text-[10px] text-slate-500 mt-1 font-semibold"></p>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-bold text-slate-700 mb-1">Reason for Fee Revision *</label>
+          <textarea id="rfReasonInput" required rows="2" placeholder="e.g. Management concession / 2nd child sibling concession / special case approval" class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"></textarea>
+        </div>
+
+        <div class="flex space-x-2 pt-2">
+          <button type="button" onclick="closeReviseFeeModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2 rounded-xl transition">
+            Cancel
+          </button>
+          <button type="submit" id="btnSubmitReviseFee" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs py-2 rounded-xl shadow-md transition flex items-center justify-center space-x-1.5">
+            <i class="fa-solid fa-check"></i>
+            <span id="btnSubmitReviseFeeText">Submit Revision</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ================= MODAL: GOOGLE DRIVE BACKUP & CLOUD SYNC ================= -->
   <div id="gdriveModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1944,7 +2014,7 @@
     </div>
   </div>
 
-  <!-- Application Logic (Cache-busted v1.1.6) -->
-  <script src="/static/app.js?v=1.1.6"></script>
+  <!-- Application Logic (Cache-busted v1.1.7) -->
+  <script src="/static/app.js?v=1.1.7"></script>
 </body>
 </html>
