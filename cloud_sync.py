@@ -525,6 +525,35 @@ def sync_student_agreed_fee_direct(admission_no: str, new_fee: float, calc_disco
         print(f"[SYNC FEE DIRECT ERROR]: {e}")
         return False
 
+def sync_admission_change_request_direct(req_id: int, student_id: int, admission_no: str, request_type: str, current_data: str, proposed_data: str, reason: str, requested_by: str):
+    """
+    Immediately and synchronously pushes new admission change requests to Turso Cloud!
+    Guarantees that pending approval queues and student governance history sync across all PCs instantly.
+    """
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        sql = """
+            INSERT INTO admission_change_requests (
+                id, student_id, admission_no, request_type, current_data, proposed_data, reason, requested_by, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+            ON CONFLICT(id) DO UPDATE SET
+                status = 'Pending',
+                reason = excluded.reason;
+        """
+        args = [
+            int(req_id), int(student_id), admission_no.strip(),
+            request_type.strip(), current_data, proposed_data,
+            reason.strip(), requested_by.strip()
+        ]
+        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        print(f"[DIRECT CLOUD ADMISSION CHANGE SYNC]: id={req_id}, admission_no={admission_no}, success={ok}")
+        return ok
+    except Exception as e:
+        print(f"[SYNC ADMISSION CHANGE DIRECT ERROR]: {e}")
+        return False
+
 def push_local_outbox_to_cloud():
     """
     Pushes pending rows from sync_queue to Cloud Database via HTTP API.

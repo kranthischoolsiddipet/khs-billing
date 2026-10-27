@@ -2010,6 +2010,22 @@ def request_admission_change(req: AdmissionChangeRequest, operator_user: str = Q
     conn.commit()
     conn.close()
 
+    # Synchronously commit new admission change request to Turso Cloud
+    try:
+        import cloud_sync
+        cloud_sync.sync_admission_change_request_direct(
+            req_id=req_id,
+            student_id=req.student_id,
+            admission_no=student['admission_no'],
+            request_type=req.request_type,
+            current_data=current_data_json,
+            proposed_data=proposed_data_json,
+            reason=req.reason.strip(),
+            requested_by=operator_name
+        )
+    except Exception:
+        pass
+
     # Queue cloud sync for change request
     try:
         import cloud_sync

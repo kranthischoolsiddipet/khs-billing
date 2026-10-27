@@ -110,25 +110,35 @@ function handleAutoLogoutDueToInactivity() {
 }
 
 function handleManualLogout() {
-  if (confirm("Are you sure you want to log out?")) {
+  const confirmed = confirm("Are you sure you want to log out?");
+  if (!confirmed) return;
+
+  try {
     // Record manual logout in backend logs
     sendSessionEndEvent('LOGOUT', 'User clicked manual Logout');
-    sessionStorage.removeItem('khs_session_id');
-    localStorage.removeItem('khs_last_active');
-
-    currentUser = null;
-    localStorage.removeItem('khs_user');
-    if (inactivityTimer) clearTimeout(inactivityTimer);
-
-    // Hide main UI and show login dialog
-    const header = document.getElementById('appTopHeader');
-    const main = document.getElementById('appMainContainer');
-    if (header) header.classList.add('hidden');
-    if (main) main.classList.add('hidden');
-
-    document.getElementById('userNameDisplay').innerText = "Logged Out";
-    openLoginModal();
+  } catch (e) {
+    console.error("Error sending logout event:", e);
   }
+
+  // Clear all session & user credentials from storage
+  sessionStorage.removeItem('khs_session_id');
+  localStorage.removeItem('khs_last_active');
+  localStorage.removeItem('khs_user');
+  currentUser = null;
+
+  if (inactivityTimer) clearTimeout(inactivityTimer);
+
+  // Hide main UI and show login dialog
+  const header = document.getElementById('appTopHeader');
+  const main = document.getElementById('appMainContainer');
+  if (header) header.classList.add('hidden');
+  if (main) main.classList.add('hidden');
+
+  const userDisplay = document.getElementById('userNameDisplay');
+  if (userDisplay) userDisplay.innerText = "Logged Out";
+
+  // Reload page to wipe in-memory state cleanly and display login prompt
+  window.location.reload();
 }
 
 // Recurring elapsed-time checker (10s): catches laptop wake-ups, sleep modes, backgrounded tabs
@@ -1900,22 +1910,21 @@ async function actionAdmissionChange(requestId, action, type) {
   const typeLabel = (type === 'CANCEL_ADMISSION') ? 'Admission Cancellation' : (type === 'REVISE_FEE' ? 'Fee Revision' : 'Details Modification');
   
   if (action === 'Approve') {
-    // If prompt is blocked or cancelled, default remarks to 'Approved by Management'
+    const confirmed = confirm(`Are you sure you want to APPROVE this ${typeLabel}?`);
+    if (!confirmed) return;
+
     try {
-      const input = prompt(`Approve this ${typeLabel}?\n\nEnter Approval Remarks (or leave as default):`, "Approved by Management");
-      if (input === null) {
-        // User clicked Cancel in prompt; confirm if they truly wanted to abort
-        const reallyCancel = confirm(`Do you want to cancel approving this ${typeLabel}?`);
-        if (reallyCancel) return;
-      }
+      const input = prompt(`Enter Optional Approval Remarks (or click OK to proceed):`, "Approved by Management");
       remarks = (input && input.trim()) ? input.trim() : "Approved by Management";
     } catch (e) {
       remarks = "Approved by Management";
     }
   } else {
+    const confirmed = confirm(`Are you sure you want to REJECT this ${typeLabel}?`);
+    if (!confirmed) return;
+
     try {
-      const input = prompt(`Reject this ${typeLabel}?\n\nEnter Reason for Rejection:`, "Rejected by Admin");
-      if (input === null) return;
+      const input = prompt(`Enter Reason for Rejection:`, "Rejected by Admin");
       remarks = (input && input.trim()) ? input.trim() : "Rejected by Admin";
     } catch (e) {
       remarks = "Rejected by Admin";
