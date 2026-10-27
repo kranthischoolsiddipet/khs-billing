@@ -1406,6 +1406,7 @@ def toggle_staff_promotion_access(data: StaffPromotionAccessToggle):
     # Cloud sync user permission
     try:
         cloud_sync.queue_transaction_locally('user_permission', str(data.user_id), 'UPDATE', {'user_id': data.user_id, 'can_promote': new_val}, "Branch 1")
+        cloud_sync.push_local_outbox_to_cloud()
     except Exception:
         pass
 
@@ -1641,6 +1642,23 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
                 student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
         """, (student_id, req.admission_no, req.student_name, req.class_name, gross_fee, req.requested_discount, req.discount_reason, operator_user))
+        disc_req_id = cursor.lastrowid
+        try:
+            import cloud_sync
+            cloud_sync.queue_transaction_locally('discount_request', f"{req.admission_no}_{disc_req_id}", 'INSERT', {
+                "id": disc_req_id,
+                "student_id": student_id,
+                "admission_no": req.admission_no.strip(),
+                "student_name": req.student_name.strip(),
+                "class_name": req.class_name,
+                "standard_fee": gross_fee,
+                "requested_discount": req.requested_discount,
+                "reason": req.discount_reason or '',
+                "requested_by": operator_user,
+                "status": 'Pending'
+            }, branch_val)
+        except Exception:
+            pass
 
     # If initial payment was made during admission
     receipt_data = None
@@ -1775,6 +1793,26 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
     req_id = cursor.lastrowid
     conn.commit()
     conn.close()
+
+    # Instant cloud sync
+    try:
+        import cloud_sync
+        cloud_sync.queue_transaction_locally('discount_request', f"{req.admission_no}_{req_id}", 'INSERT', {
+            "id": req_id,
+            "student_id": None,
+            "admission_no": req.admission_no.strip(),
+            "student_name": req.student_name.strip(),
+            "class_name": req.class_name,
+            "standard_fee": req.standard_fee,
+            "requested_discount": req.requested_discount,
+            "reason": req.reason or '',
+            "requested_by": operator_user,
+            "status": 'Pending'
+        }, 'Branch 1')
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
     return {"status": "success", "request_id": req_id, "message": "Discount approval request sent to Admin."}
 
 @app.get("/api/discounts/status/{request_id}")
@@ -1818,14 +1856,64 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
 
         if student_id:
             # Recalculate student final agreed fee if student already admitted
-            student = cursor.execute("SELECT standard_fee FROM students WHERE id = ?", (student_id,)).fetchone()
-            new_agreed = student['standard_fee'] - req.approved_discount
+            student = cursor.execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+            std_fee = float(student['standard_fee']) if student else 0.0
+            new_agreed = max(0.0, std_fee - req.approved_discount)
             cursor.execute("""
                 UPDATE students 
                 SET discount_amount = ?, final_agreed_fee = ?, discount_status = 'Approved'
                 WHERE id = ?
             """, (req.approved_discount, new_agreed, student_id))
             cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_agreed, student_id))
+
+            # Queue student & payments update
+            try:
+                import cloud_sync
+                cloud_sync.queue_transaction_locally('student', student['admission_no'], 'UPDATE', {
+                    "admission_no": student['admission_no'],
+                    "roll_no": student['roll_no'] or '',
+                    "student_name": student['student_name'],
+                    "branch": student['branch'] or 'Branch 1',
+                    "gender": student['gender'] or 'Male',
+                    "class_name": student['class_name'],
+                    "section": student['section'] or 'A',
+                    "academic_year": student['academic_year'] or '2026-2027',
+                    "student_type": student['student_type'] or 'Day Scholar',
+                    "has_transport": student['has_transport'] or 0,
+                    "transport_fee": student['transport_fee'] or 0.0,
+                    "bus_route": student['bus_route'] or '',
+                    "parent_name": student['parent_name'],
+                    "parent_phone": student['parent_phone'],
+                    "parent_email": student['parent_email'] or '',
+                    "address": student['address'] or '',
+                    "standard_fee": std_fee,
+                    "discount_amount": req.approved_discount,
+                    "final_agreed_fee": new_agreed,
+                    "discount_status": 'Approved',
+                    "admission_date": student['admission_date'],
+                    "created_by": student['created_by'],
+                    "status": student['status'],
+                    "previous_due": student['previous_due'] or 0.0
+                }, student['branch'] or 'Branch 1')
+                cloud_sync.queue_transaction_locally('payments_total_agreed', student['admission_no'], 'UPDATE', {
+                    "admission_no": student['admission_no'],
+                    "total_agreed_fee": new_agreed
+                }, student['branch'] or 'Branch 1')
+            except Exception:
+                pass
+
+        try:
+            import cloud_sync
+            cloud_sync.queue_transaction_locally('discount_request', f"{req_row['admission_no']}_{req.request_id}", 'UPDATE', {
+                "id": req.request_id,
+                "status": 'Approved',
+                "approved_by": approver_user,
+                "approved_discount": req.approved_discount,
+                "admin_remarks": req.admin_remarks or ''
+            }, 'Branch 1')
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
 
     else:
         cursor.execute("""
@@ -1836,6 +1924,19 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
 
         if student_id:
             cursor.execute("UPDATE students SET discount_status = 'Rejected' WHERE id = ?", (student_id,))
+
+        try:
+            import cloud_sync
+            cloud_sync.queue_transaction_locally('discount_request', f"{req_row['admission_no']}_{req.request_id}", 'UPDATE', {
+                "id": req.request_id,
+                "status": 'Rejected',
+                "approved_by": approver_user,
+                "approved_discount": 0.0,
+                "admin_remarks": req.admin_remarks or ''
+            }, 'Branch 1')
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
@@ -2034,11 +2135,16 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                 "reviewed_at": now_actioned
             }, b_val)
             # Log audit activity
-            cursor.execute("""
-                INSERT INTO user_activity_logs (
-                    username, action_type, description, ip_address, device_info, timestamp
-                ) VALUES (?, 'FEE_REVISION', ?, 'Internal/System', 'Web App', ?)
-            """, (approver_user, f"Approved {req_row['request_type']} request #{req.request_id} for admission {req_row['admission_no']}. Remarks: {req.admin_remarks or 'None'}", now_actioned))
+            record_activity_log(
+                session_id=f"sess_{approver_user}_{int(datetime.now().timestamp())}",
+                username=approver_user,
+                full_name=approver_user,
+                role="T2",
+                branch=b_val,
+                action_type="FEE_REVISION",
+                action_details=f"Approved {req_row['request_type']} request #{req.request_id} for admission {req_row['admission_no']}. Remarks: {req.admin_remarks or 'None'}",
+                entity_id=req_row['admission_no']
+            )
             cloud_sync.push_local_outbox_to_cloud()
         except Exception:
             pass
@@ -2170,6 +2276,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
             "admission_no": student['admission_no'],
             "total_agreed_fee": new_fee
         }, student['branch'] or 'Branch 1')
+        cloud_sync.push_local_outbox_to_cloud()
     except Exception:
         pass
 

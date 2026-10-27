@@ -4624,5 +4624,13 @@ async function handleSuperAdminChangePin(e) {
   }
 }
 
+// Background poller to keep Approvals badge updated for Admin (every 10 seconds)
+setInterval(() => {
+  if (currentUser && ['T1', 'T2'].includes(currentUser.role)) {
+    updateApprovalsBadge();
+  }
+}, 10000);
+
+
 
 
