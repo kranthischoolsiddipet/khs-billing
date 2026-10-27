@@ -2064,9 +2064,9 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                 cursor.execute("""
                     UPDATE students 
                     SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved' 
-                    WHERE id = ?
-                """, (new_fee, calc_discount, student_id))
-                cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE student_id = ?", (new_fee, student_id))
+                    WHERE admission_no = ?
+                """, (new_fee, calc_discount, req_row['admission_no']))
+                cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, req_row['admission_no']))
 
                 # Queue cloud sync
                 try:
@@ -2438,22 +2438,23 @@ def get_student_statement(student_id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="Student not found")
 
+    adm_no = student['admission_no']
     payments = conn.execute("""
-        SELECT * FROM payments WHERE student_id = ? ORDER BY id ASC
-    """, (student_id,)).fetchall()
+        SELECT * FROM payments WHERE admission_no = ? OR student_id = ? ORDER BY id ASC
+    """, (adm_no, student_id)).fetchall()
 
     pending_change = conn.execute("""
         SELECT * FROM admission_change_requests 
-        WHERE student_id = ? AND status = 'Pending' 
+        WHERE (admission_no = ? OR student_id = ?) AND status = 'Pending' 
         ORDER BY id DESC LIMIT 1
-    """, (student_id,)).fetchone()
+    """, (adm_no, student_id)).fetchone()
 
     # Retrieve all change and fee revision history for this student
     history_rows = conn.execute("""
         SELECT * FROM admission_change_requests 
-        WHERE student_id = ? 
+        WHERE admission_no = ? OR student_id = ? 
         ORDER BY id DESC
-    """, (student_id,)).fetchall()
+    """, (adm_no, student_id)).fetchall()
 
     conn.close()
     total_paid = sum(p['amount_paid'] for p in payments)
