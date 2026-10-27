@@ -2101,6 +2101,19 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                 """, (new_fee, calc_discount, adm_no))
                 cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, adm_no))
 
+                # Immediately commit to cloud Turso to guarantee persistence and prevent pull rollback
+                try:
+                    cloud_sync.sync_student_agreed_fee_direct(
+                        admission_no=adm_no,
+                        new_fee=new_fee,
+                        calc_discount=calc_discount,
+                        request_id=req.request_id,
+                        approver_user=approver_user,
+                        admin_remarks=req.admin_remarks or 'Approved'
+                    )
+                except Exception:
+                    pass
+
                 # Queue cloud sync
                 try:
                     cloud_sync.queue_transaction_locally('student', adm_no, 'UPDATE', {
@@ -2258,6 +2271,18 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
         WHERE admission_no = ?
     """, (new_fee, calc_discount, student['admission_no']))
     cursor.execute("UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?", (new_fee, student['admission_no']))
+
+    # Immediately commit to cloud Turso to guarantee persistence and prevent pull rollback
+    try:
+        cloud_sync.sync_student_agreed_fee_direct(
+            admission_no=student['admission_no'],
+            new_fee=new_fee,
+            calc_discount=calc_discount,
+            approver_user=op['username'],
+            admin_remarks=req.reason.strip()
+        )
+    except Exception:
+        pass
 
     # Record Activity Log
     sess_id = (req.session_id or f"sess_{req.operator_user}").strip()

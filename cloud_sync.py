@@ -492,6 +492,39 @@ def sync_user_password_direct(username: str, password_hash: str):
         print(f"[SYNC PIN DIRECT ERROR]: {e}")
         return False
 
+def sync_student_agreed_fee_direct(admission_no: str, new_fee: float, calc_discount: float, request_id: int = None, approver_user: str = "admin", admin_remarks: str = ""):
+    """
+    Immediately and synchronously applies fee revision to Turso Cloud database!
+    Ensures that when a background worker or web server pulls from cloud, the new fee is already committed,
+    preventing any possibility of the balance reverting back to the old fee.
+    """
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        queries = [
+            {
+                "sql": "UPDATE students SET final_agreed_fee = ?, discount_amount = ?, discount_status = 'Approved' WHERE admission_no = ?;",
+                "args": [float(new_fee), float(calc_discount), admission_no.strip()]
+            },
+            {
+                "sql": "UPDATE payments SET total_agreed_fee = ? WHERE admission_no = ?;",
+                "args": [float(new_fee), admission_no.strip()]
+            }
+        ]
+        if request_id:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            queries.append({
+                "sql": "UPDATE admission_change_requests SET status = 'Approved', reviewed_by = ?, admin_remarks = ?, reviewed_at = ? WHERE id = ?;",
+                "args": [approver_user.strip(), admin_remarks.strip(), now_str, int(request_id)]
+            })
+        ok, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])
+        print(f"[DIRECT CLOUD FEE REVISION SYNC]: admission_no={admission_no}, new_fee={new_fee}, success={ok}")
+        return ok
+    except Exception as e:
+        print(f"[SYNC FEE DIRECT ERROR]: {e}")
+        return False
+
 def push_local_outbox_to_cloud():
     """
     Pushes pending rows from sync_queue to Cloud Database via HTTP API.
