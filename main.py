@@ -105,6 +105,23 @@ def get_system_version():
 def dict_from_row(row):
     return dict(row) if row else None
 
+def resolve_user_display_name(conn, username_or_phone: str) -> str:
+    """Returns the full_name of a staff member given their username or mobile number"""
+    if not username_or_phone:
+        return "Staff"
+    u = str(username_or_phone).strip()
+    if u in ["superadmin", "admin", "frontdesk"]:
+        if u == "superadmin": return "Super Administrator"
+        if u == "admin": return "Admin"
+        return "Front Desk"
+    try:
+        user_row = conn.execute("SELECT full_name FROM users WHERE username = ? OR phone = ?", (u, u)).fetchone()
+        if user_row and user_row['full_name']:
+            return user_row['full_name'].strip()
+    except Exception:
+        pass
+    return u
+
 # ----------------- PYDANTIC MODELS -----------------
 
 class LoginRequest(BaseModel):
@@ -1785,11 +1802,13 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
 def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_user: str = Query("frontdesk")):
     conn = get_db()
     cursor = conn.cursor()
+    operator_name = resolve_user_display_name(conn, operator_user)
+
     cursor.execute("""
         INSERT INTO discount_requests (
             student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status
         ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 'Pending')
-    """, (req.admission_no.strip(), req.student_name.strip(), req.class_name, req.standard_fee, req.requested_discount, req.reason, operator_user))
+    """, (req.admission_no.strip(), req.student_name.strip(), req.class_name, req.standard_fee, req.requested_discount, req.reason, operator_name))
     req_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -1806,7 +1825,7 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
             "standard_fee": req.standard_fee,
             "requested_discount": req.requested_discount,
             "reason": req.reason or '',
-            "requested_by": operator_user,
+            "requested_by": operator_name,
             "status": 'Pending'
         }, 'Branch 1')
         cloud_sync.push_local_outbox_to_cloud()
@@ -1832,8 +1851,13 @@ def get_pending_discounts():
         WHERE status = 'Pending' 
         ORDER BY created_at DESC
     """).fetchall()
+    results = []
+    for r in rows:
+        d = dict_from_row(r)
+        d['requested_by'] = resolve_user_display_name(conn, d.get('requested_by'))
+        results.append(d)
     conn.close()
-    return [dict_from_row(r) for r in rows]
+    return results
 
 @app.post("/api/discounts/action")
 def action_discount(req: DiscountActionRequest, approver_user: str = Query("admin")):
@@ -1973,11 +1997,14 @@ def request_admission_change(req: AdmissionChangeRequest, operator_user: str = Q
     current_data_json = json.dumps(dict_from_row(student))
     proposed_data_json = json.dumps(req.proposed_data or {})
 
+    # Resolve operator display name (Staff full name instead of phone number)
+    operator_name = resolve_user_display_name(conn, operator_user)
+
     cursor.execute("""
         INSERT INTO admission_change_requests (
             student_id, admission_no, request_type, current_data, proposed_data, reason, requested_by, status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')
-    """, (req.student_id, student['admission_no'], req.request_type, current_data_json, proposed_data_json, req.reason.strip(), operator_user))
+    """, (req.student_id, student['admission_no'], req.request_type, current_data_json, proposed_data_json, req.reason.strip(), operator_name))
 
     req_id = cursor.lastrowid
     conn.commit()
@@ -1994,7 +2021,7 @@ def request_admission_change(req: AdmissionChangeRequest, operator_user: str = Q
             "current_data": current_data_json,
             "proposed_data": proposed_data_json,
             "reason": req.reason.strip(),
-            "requested_by": operator_user,
+            "requested_by": operator_name,
             "status": 'Pending',
             "created_at": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
         }, student['branch'] or 'Branch 1')
@@ -2022,14 +2049,15 @@ def get_pending_admission_changes():
         WHERE status = 'Pending' 
         ORDER BY created_at DESC
     """).fetchall()
-    conn.close()
 
     results = []
     for r in rows:
         d = dict_from_row(r)
         d['current_data'] = json.loads(d['current_data']) if d['current_data'] else {}
         d['proposed_data'] = json.loads(d['proposed_data']) if d['proposed_data'] else {}
+        d['requested_by'] = resolve_user_display_name(conn, d.get('requested_by'))
         results.append(d)
+    conn.close()
     return results
 
 @app.post("/api/admissions/action-change")
@@ -2462,20 +2490,22 @@ def get_student_statement(student_id: int):
         ORDER BY id DESC
     """, (adm_no, student_id)).fetchall()
 
-    conn.close()
-    total_paid = sum(p['amount_paid'] for p in payments)
-    balance = student['final_agreed_fee'] - total_paid
-
     pending_change_dict = dict_from_row(pending_change)
     if pending_change_dict:
         pending_change_dict['proposed_data'] = json.loads(pending_change_dict['proposed_data'] or '{}')
+        pending_change_dict['requested_by'] = resolve_user_display_name(conn, pending_change_dict.get('requested_by'))
 
     parsed_history = []
     for hr in history_rows:
         hd = dict_from_row(hr)
         hd['current_data'] = json.loads(hd['current_data'] or '{}') if hd.get('current_data') else {}
         hd['proposed_data'] = json.loads(hd['proposed_data'] or '{}') if hd.get('proposed_data') else {}
+        hd['requested_by'] = resolve_user_display_name(conn, hd.get('requested_by'))
         parsed_history.append(hd)
+
+    conn.close()
+    total_paid = sum(p['amount_paid'] for p in payments)
+    balance = student['final_agreed_fee'] - total_paid
 
     return {
         "student": dict_from_row(student),

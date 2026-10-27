@@ -1898,18 +1898,34 @@ async function loadPendingAdmissionChanges() {
 async function actionAdmissionChange(requestId, action, type) {
   let remarks = "";
   const typeLabel = (type === 'CANCEL_ADMISSION') ? 'Admission Cancellation' : (type === 'REVISE_FEE' ? 'Fee Revision' : 'Details Modification');
+  
   if (action === 'Approve') {
-    if (!confirm(`Are you sure you want to APPROVE this ${typeLabel}?`)) return;
-    remarks = prompt("Admin Approval Remarks (Optional):", "Approved by Management") || "";
+    // If prompt is blocked or cancelled, default remarks to 'Approved by Management'
+    try {
+      const input = prompt(`Approve this ${typeLabel}?\n\nEnter Approval Remarks (or leave as default):`, "Approved by Management");
+      if (input === null) {
+        // User clicked Cancel in prompt; confirm if they truly wanted to abort
+        const reallyCancel = confirm(`Do you want to cancel approving this ${typeLabel}?`);
+        if (reallyCancel) return;
+      }
+      remarks = (input && input.trim()) ? input.trim() : "Approved by Management";
+    } catch (e) {
+      remarks = "Approved by Management";
+    }
   } else {
-    if (!confirm(`Are you sure you want to REJECT this ${typeLabel}?`)) return;
-    remarks = prompt("Reason for Rejection:", "Rejected by Admin") || "Rejected";
+    try {
+      const input = prompt(`Reject this ${typeLabel}?\n\nEnter Reason for Rejection:`, "Rejected by Admin");
+      if (input === null) return;
+      remarks = (input && input.trim()) ? input.trim() : "Rejected by Admin";
+    } catch (e) {
+      remarks = "Rejected by Admin";
+    }
   }
 
-  const approver = currentUser ? currentUser.username : 'admin';
+  const approver = currentUser ? (currentUser.full_name || currentUser.username) : 'admin';
 
   try {
-    const res = await fetch(`/api/admissions/action-change?approver_user=${approver}`, {
+    const res = await fetch(`/api/admissions/action-change?approver_user=${encodeURIComponent(approver)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
