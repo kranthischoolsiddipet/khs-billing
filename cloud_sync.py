@@ -550,23 +550,51 @@ def push_local_outbox_to_cloud():
             queries.append({
                 "sql": """
                     UPDATE students SET
-                        roll_no = ?, student_name = ?, branch = ?, gender = ?, class_name = ?, section = ?,
-                        academic_year = ?, student_type = ?, has_transport = ?, transport_fee = ?, bus_route = ?,
-                        parent_name = ?, parent_phone = ?, parent_email = ?, address = ?, standard_fee = ?,
-                        discount_amount = ?, final_agreed_fee = ?, discount_status = ?, admission_date = ?,
-                        created_by = ?, status = ?, previous_due = ?
+                        roll_no = COALESCE(NULLIF(?, ''), roll_no),
+                        student_name = COALESCE(NULLIF(?, ''), student_name),
+                        branch = COALESCE(NULLIF(?, ''), branch),
+                        gender = COALESCE(NULLIF(?, ''), gender),
+                        class_name = COALESCE(NULLIF(?, ''), class_name),
+                        section = COALESCE(NULLIF(?, ''), section),
+                        academic_year = COALESCE(NULLIF(?, ''), academic_year),
+                        student_type = COALESCE(NULLIF(?, ''), student_type),
+                        has_transport = CASE WHEN ? IS NOT NULL THEN ? ELSE has_transport END,
+                        transport_fee = CASE WHEN ? IS NOT NULL THEN ? ELSE transport_fee END,
+                        bus_route = COALESCE(?, bus_route),
+                        parent_name = COALESCE(NULLIF(?, ''), parent_name),
+                        parent_phone = COALESCE(NULLIF(?, ''), parent_phone),
+                        parent_email = COALESCE(?, parent_email),
+                        address = COALESCE(?, address),
+                        standard_fee = CASE WHEN ? IS NOT NULL THEN ? ELSE standard_fee END,
+                        discount_amount = CASE WHEN ? IS NOT NULL THEN ? ELSE discount_amount END,
+                        final_agreed_fee = CASE WHEN ? IS NOT NULL THEN ? ELSE final_agreed_fee END,
+                        discount_status = COALESCE(NULLIF(?, 'None'), discount_status),
+                        admission_date = COALESCE(NULLIF(?, ''), admission_date),
+                        created_by = COALESCE(NULLIF(?, ''), created_by),
+                        status = COALESCE(NULLIF(?, ''), status),
+                        previous_due = CASE WHEN ? IS NOT NULL THEN ? ELSE previous_due END
                     WHERE admission_no = ?
                 """,
                 "args": [
-                    data.get('roll_no', ''), data.get('student_name'),
-                    data.get('branch', 'Branch 1'), data.get('gender', 'Male'), data.get('class_name'),
-                    data.get('section', 'A'), data.get('academic_year', '2026-2027'), data.get('student_type', 'Day Scholar'),
-                    1 if data.get('has_transport') else 0, float(data.get('transport_fee', 0.0)), data.get('bus_route', ''),
-                    data.get('parent_name'), data.get('parent_phone'), data.get('parent_email', ''), data.get('address', ''),
-                    float(data.get('standard_fee', 0.0)), float(data.get('discount_amount', 0.0)),
-                    float(data.get('final_agreed_fee', 0.0)), data.get('discount_status', 'None'),
-                    data.get('admission_date', datetime.now().strftime("%Y-%m-%d")),
-                    data.get('created_by', 'frontdesk'), data.get('status', 'Active'),
+                    data.get('roll_no'), data.get('student_name'),
+                    data.get('branch'), data.get('gender'), data.get('class_name'),
+                    data.get('section'), data.get('academic_year'), data.get('student_type'),
+                    1 if data.get('has_transport') else (0 if 'has_transport' in data else None),
+                    1 if data.get('has_transport') else 0,
+                    float(data['transport_fee']) if 'transport_fee' in data and data['transport_fee'] is not None else None,
+                    float(data.get('transport_fee', 0.0)),
+                    data.get('bus_route'),
+                    data.get('parent_name'), data.get('parent_phone'), data.get('parent_email'), data.get('address'),
+                    float(data['standard_fee']) if 'standard_fee' in data and data['standard_fee'] is not None else None,
+                    float(data.get('standard_fee', 0.0)),
+                    float(data['discount_amount']) if 'discount_amount' in data and data['discount_amount'] is not None else None,
+                    float(data.get('discount_amount', 0.0)),
+                    float(data['final_agreed_fee']) if 'final_agreed_fee' in data and data['final_agreed_fee'] is not None else None,
+                    float(data.get('final_agreed_fee', 0.0)),
+                    data.get('discount_status'),
+                    data.get('admission_date'),
+                    data.get('created_by'), data.get('status'),
+                    float(data['previous_due']) if 'previous_due' in data and data['previous_due'] is not None else None,
                     float(data.get('previous_due', 0.0)),
                     data.get('admission_no')
                 ]
@@ -736,7 +764,15 @@ def push_local_outbox_to_cloud():
             })
 
     success, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])
-    if success:
+    has_sub_error = False
+    if success and isinstance(res, dict) and 'results' in res:
+        for r_item in res['results']:
+            if r_item.get('type') == 'error':
+                has_sub_error = True
+                res = r_item.get('error', {}).get('message', 'Subquery execution error')
+                break
+
+    if success and not has_sub_error:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cur.executemany("UPDATE sync_queue SET sync_status = 'synced', synced_at = ? WHERE id = ?", [(now_str, i) for i in item_ids])
         conn.commit()

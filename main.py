@@ -2127,10 +2127,13 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                 vals.append(adm_no)
                 cursor.execute(f"UPDATE students SET {', '.join(updates)} WHERE admission_no = ?", vals)
 
+        conn.commit()
+        conn.close()
+
         # Queue cloud sync for the request decision
         try:
             now_actioned = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
-            student_obj = cursor.execute("SELECT branch, admission_no FROM students WHERE id = ?", (student_id,)).fetchone()
+            student_obj = student
             b_val = student_obj['branch'] if student_obj else 'Branch 1'
             cloud_sync.queue_transaction_locally('admission_change', f"{student_id}_{req.request_id}", 'UPDATE', {
                 "id": req.request_id,
@@ -2154,8 +2157,6 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
         except Exception:
             pass
 
-        conn.commit()
-        conn.close()
         return {"status": "success", "message": f"Admission {req_row['request_type']} has been APPROVED and applied."}
     else:
         now_actioned = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
