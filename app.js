@@ -3,6 +3,7 @@ let currentUser = null;
 let currentStudent = null;
 let searchDebounceTimer = null;
 let pendingDiscountsList = [];
+let activeAdmissionDraftId = null;
 
 // Session ID Management for Audit & Activity Trail
 function getOrCreateSessionId() {
@@ -234,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initial data loads
   loadPendingDiscounts();
+  updateAdmissionDraftsBadge();
   recalculateBaseFee();
 });
 
@@ -678,6 +680,58 @@ async function selectStudent(studentId, isBackgroundPoll = false) {
       }
     }
 
+    currentStudent._pending_change = data.pending_change || null;
+
+    // Update Governance action buttons state if a change/fee revision request is pending
+    const btnReviseFee = document.getElementById('btnGovReviseFee');
+    const btnReviseFeeLabel = document.getElementById('btnReviseFeeLabel');
+    const btnRequestEdit = document.getElementById('btnGovRequestEdit');
+    const btnRequestEditLabel = document.getElementById('btnRequestEditLabel');
+    const btnCancelAdm = document.getElementById('btnGovCancelAdm');
+    const btnCancelAdmLabel = document.getElementById('btnCancelAdmLabel');
+
+    if (btnReviseFee && btnReviseFeeLabel) {
+      if (data.pending_change && data.pending_change.request_type === 'REVISE_FEE') {
+        btnReviseFee.disabled = true;
+        btnReviseFee.classList.add('opacity-60', 'cursor-not-allowed', 'bg-amber-100');
+        btnReviseFeeLabel.innerHTML = `Revision Pending <i class="fa-solid fa-clock ml-1 text-amber-700 animate-pulse"></i>`;
+        btnReviseFee.title = `Fee revision submitted by ${data.pending_change.requested_by} is awaiting Admin approval`;
+      } else {
+        btnReviseFee.disabled = isCancelled;
+        btnReviseFee.classList.remove('opacity-60', 'cursor-not-allowed');
+        btnReviseFeeLabel.innerText = 'Revise Fee';
+        btnReviseFee.title = 'Revise or request revision of agreed annual fee';
+      }
+    }
+
+    if (btnRequestEdit && btnRequestEditLabel) {
+      if (data.pending_change && data.pending_change.request_type === 'EDIT_DETAILS') {
+        btnRequestEdit.disabled = true;
+        btnRequestEdit.classList.add('opacity-60', 'cursor-not-allowed', 'bg-indigo-100');
+        btnRequestEditLabel.innerHTML = `Edit Pending <i class="fa-solid fa-clock ml-1 text-indigo-700 animate-pulse"></i>`;
+        btnRequestEdit.title = `Details modification submitted by ${data.pending_change.requested_by} is awaiting Admin approval`;
+      } else {
+        btnRequestEdit.disabled = isCancelled;
+        btnRequestEdit.classList.remove('opacity-60', 'cursor-not-allowed');
+        btnRequestEditLabel.innerText = 'Request Edit';
+        btnRequestEdit.title = 'Request Admin Approval to modify student details';
+      }
+    }
+
+    if (btnCancelAdm && btnCancelAdmLabel) {
+      if (data.pending_change && data.pending_change.request_type === 'CANCEL_ADMISSION') {
+        btnCancelAdm.disabled = true;
+        btnCancelAdm.classList.add('opacity-60', 'cursor-not-allowed', 'bg-rose-100');
+        btnCancelAdmLabel.innerHTML = `Cancel Pending <i class="fa-solid fa-clock ml-1 text-rose-700 animate-pulse"></i>`;
+        btnCancelAdm.title = `Admission cancellation submitted by ${data.pending_change.requested_by} is awaiting Admin approval`;
+      } else {
+        btnCancelAdm.disabled = isCancelled;
+        btnCancelAdm.classList.remove('opacity-60', 'cursor-not-allowed');
+        btnCancelAdmLabel.innerText = 'Cancel Admission';
+        btnCancelAdm.title = 'Request Admin Approval to cancel admission';
+      }
+    }
+
     currentStudent._current_balance_due = Number(data.balance_due);
 
     // Default amount input to remaining balance (or 10000 if larger) and cap with max
@@ -1099,6 +1153,7 @@ function enableDiscountModification() {
 
 function resetAdmissionFormState() {
   clearInterval(currentDiscountApprovalState.pollTimer);
+  activeAdmissionDraftId = null;
   currentDiscountApprovalState = {
     status: 'None',
     requestId: null,
@@ -1207,11 +1262,16 @@ async function handleAdmissionSubmit(e) {
     }
 
     // Reset Form & Switch to Collection Tab
+    if (activeAdmissionDraftId) {
+      deleteDraftAdmission(activeAdmissionDraftId, true);
+      activeAdmissionDraftId = null;
+    }
     document.getElementById('admissionForm').reset();
     resetAdmissionFormState();
     toggleTransportSection();
     recalculateBaseFee();
     loadPendingDiscounts();
+    updateAdmissionDraftsBadge();
     switchTab('collect');
 
   } catch (err) {
@@ -1316,6 +1376,332 @@ async function actionDiscountRequest(requestId, action, defaultAmount) {
   } catch (err) {
     alert("Error actioning discount: " + err);
   }
+}
+
+// ================= ADMISSION DRAFT MANAGEMENT =================
+
+function getAdmissionDrafts() {
+  try {
+    const raw = localStorage.getItem('khs_admission_drafts');
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveAdmissionDrafts(drafts) {
+  try {
+    localStorage.setItem('khs_admission_drafts', JSON.stringify(drafts));
+  } catch (e) {
+    console.error("Failed to save drafts:", e);
+  }
+}
+
+function updateAdmissionDraftsBadge() {
+  const drafts = getAdmissionDrafts();
+  const badge = document.getElementById('admitDraftsCountBadge');
+  if (badge) {
+    if (drafts.length > 0) {
+      badge.innerText = drafts.length;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+}
+
+function saveAdmissionAsDraft() {
+  const admNo = document.getElementById('admNo').value.trim();
+  const fName = document.getElementById('admFirstName').value.trim();
+  const lName = document.getElementById('admLastName').value.trim();
+  const sname = `${fName} ${lName}`.trim();
+
+  if (!admNo && !fName) {
+    return alert("Please enter at least the Admission Number or Student Name to save a draft.");
+  }
+
+  const drafts = getAdmissionDrafts();
+  const draftId = activeAdmissionDraftId || ('draft_' + Date.now());
+
+  const draftData = {
+    id: draftId,
+    saved_at: formatISTTimestamp(new Date()),
+    admission_no: admNo,
+    first_name: fName,
+    last_name: lName,
+    student_name: sname || 'Unnamed Draft',
+    roll_no: document.getElementById('admRoll').value.trim(),
+    branch: document.getElementById('admBranch') ? document.getElementById('admBranch').value : 'Branch 1',
+    class_name: document.getElementById('admClass').value,
+    section: document.getElementById('admSection').value,
+    gender: document.getElementById('admGender').value,
+    student_type: document.getElementById('admStudentType').value,
+    has_transport: document.getElementById('admHasTransport').checked,
+    transport_fee: document.getElementById('admTransportFee').value.trim(),
+    bus_route: document.getElementById('admBusRoute').value.trim(),
+    parent_name: document.getElementById('admParentName').value.trim(),
+    parent_phone: document.getElementById('admParentPhone').value.trim(),
+    address: document.getElementById('admAddress').value.trim(),
+    discount_amount: document.getElementById('admDiscountAmount').value.trim(),
+    discount_reason: document.getElementById('admDiscountReason').value.trim(),
+    initial_payment: document.getElementById('admInitialPay').value.trim(),
+    payment_mode: document.getElementById('admPayMode').value,
+    payment_ref: document.getElementById('admPayRef').value.trim(),
+    discount_approval_state: {
+      status: currentDiscountApprovalState.status,
+      requestId: currentDiscountApprovalState.requestId,
+      requestedAmount: currentDiscountApprovalState.requestedAmount,
+      approvedAmount: currentDiscountApprovalState.approvedAmount
+    }
+  };
+
+  const existingIdx = drafts.findIndex(d => d.id === draftId);
+  if (existingIdx >= 0) {
+    drafts[existingIdx] = draftData;
+  } else {
+    drafts.unshift(draftData);
+  }
+
+  saveAdmissionDrafts(drafts);
+  activeAdmissionDraftId = draftId;
+  updateAdmissionDraftsBadge();
+
+  alert(`Admission draft for "${draftData.student_name}" saved successfully!\n\nYou can switch windows, wait for Admin discount approval, and continue anytime from "Saved Drafts".`);
+}
+
+async function openDraftsModal() {
+  const modal = document.getElementById('admissionDraftsModal');
+  const container = document.getElementById('draftsListContainer');
+  const summary = document.getElementById('draftsCountSummary');
+  if (!modal || !container) return;
+
+  const drafts = getAdmissionDrafts();
+  summary.innerText = `${drafts.length} saved draft${drafts.length === 1 ? '' : 's'}`;
+
+  if (drafts.length === 0) {
+    container.innerHTML = `
+      <div class="p-8 text-center text-slate-400">
+        <i class="fa-solid fa-folder-open text-3xl mb-2 text-slate-300"></i>
+        <p class="text-xs font-semibold">No saved admission drafts found.</p>
+        <p class="text-[11px] text-slate-400 mt-1">When filling the admission form or waiting for discount approval, click "Save Admission as Draft" to store it here.</p>
+      </div>
+    `;
+    modal.classList.remove('hidden');
+    return;
+  }
+
+  // Refresh latest discount status for each draft that has a requestId
+  for (const draft of drafts) {
+    if (draft.discount_approval_state && draft.discount_approval_state.requestId) {
+      try {
+        const res = await fetch(`/api/discounts/status/${draft.discount_approval_state.requestId}`);
+        if (res.ok) {
+          const reqData = await res.json();
+          draft.discount_approval_state.status = reqData.status;
+          if (reqData.status === 'Approved') {
+            draft.discount_approval_state.approvedAmount = reqData.approved_discount;
+            draft.discount_amount = String(reqData.approved_discount);
+          }
+        }
+      } catch (e) {
+        // network or offline, keep local state
+      }
+    }
+  }
+  saveAdmissionDrafts(drafts);
+
+  container.innerHTML = drafts.map(d => {
+    let statusPill = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">No Discount</span>`;
+    const dState = d.discount_approval_state;
+    if (dState && dState.requestId) {
+      if (dState.status === 'Approved') {
+        statusPill = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300"><i class="fa-solid fa-circle-check mr-1"></i>Approved: ₹ ${Number(dState.approvedAmount || d.discount_amount).toLocaleString('en-IN')}</span>`;
+      } else if (dState.status === 'Pending') {
+        statusPill = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 animate-pulse"><i class="fa-solid fa-clock mr-1"></i>Discount Pending (Req #${dState.requestId})</span>`;
+      } else if (dState.status === 'Rejected') {
+        statusPill = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300"><i class="fa-solid fa-ban mr-1"></i>Discount Rejected</span>`;
+      }
+    }
+
+    return `
+      <div class="border border-slate-200 hover:border-indigo-300 rounded-xl p-3 bg-white flex items-center justify-between transition shadow-2xs">
+        <div class="space-y-1">
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-slate-900 text-xs">${d.student_name || 'Unnamed'}</span>
+            <span class="font-mono text-[11px] text-indigo-700 font-bold bg-indigo-50 px-1.5 py-0.5 rounded">${d.admission_no || 'No Adm #'}</span>
+            <span class="text-[11px] text-slate-500 font-medium">${d.class_name} (${d.branch})</span>
+          </div>
+          <div class="flex items-center space-x-2 text-[11px] text-slate-500">
+            <span>Parent: <b>${d.parent_name || '—'}</b> (${d.parent_phone || '—'})</span>
+            <span>•</span>
+            <span>Saved: ${d.saved_at}</span>
+          </div>
+          <div class="pt-0.5">
+            ${statusPill}
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2 pl-3">
+          <button type="button" onclick="resumeDraftAdmission('${d.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3 py-1.5 rounded-lg transition flex items-center space-x-1 shadow-xs">
+            <i class="fa-solid fa-arrow-right-to-bracket"></i>
+            <span>Resume</span>
+          </button>
+          <button type="button" onclick="deleteDraftAdmission('${d.id}')" class="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-lg transition text-xs" title="Delete Draft">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  modal.classList.remove('hidden');
+}
+
+function closeDraftsModal() {
+  const modal = document.getElementById('admissionDraftsModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function deleteDraftAdmission(draftId, silent = false) {
+  if (!silent && !confirm("Are you sure you want to discard this saved admission draft?")) return;
+  let drafts = getAdmissionDrafts();
+  drafts = drafts.filter(d => d.id !== draftId);
+  saveAdmissionDrafts(drafts);
+  if (activeAdmissionDraftId === draftId) {
+    activeAdmissionDraftId = null;
+  }
+  updateAdmissionDraftsBadge();
+  if (!silent) {
+    openDraftsModal(); // re-render
+  }
+}
+
+async function resumeDraftAdmission(draftId) {
+  const drafts = getAdmissionDrafts();
+  const draft = drafts.find(d => d.id === draftId);
+  if (!draft) return alert("Draft not found.");
+
+  closeDraftsModal();
+  switchTab('admit');
+
+  activeAdmissionDraftId = draft.id;
+
+  // Populate basic inputs
+  document.getElementById('admNo').value = draft.admission_no || '';
+  document.getElementById('admFirstName').value = draft.first_name || '';
+  document.getElementById('admLastName').value = draft.last_name || '';
+  document.getElementById('admRoll').value = draft.roll_no || '';
+  if (document.getElementById('admBranch')) document.getElementById('admBranch').value = draft.branch || 'Branch 1';
+  document.getElementById('admClass').value = draft.class_name || 'Class 8';
+  document.getElementById('admSection').value = draft.section || '';
+  document.getElementById('admGender').value = draft.gender || 'Male';
+  document.getElementById('admStudentType').value = draft.student_type || 'Day Scholar';
+
+  // Transport
+  document.getElementById('admHasTransport').checked = !!draft.has_transport;
+  document.getElementById('admTransportFee').value = draft.transport_fee || '';
+  document.getElementById('admBusRoute').value = draft.bus_route || '';
+  toggleTransportSection();
+
+  // Parent
+  document.getElementById('admParentName').value = draft.parent_name || '';
+  document.getElementById('admParentPhone').value = draft.parent_phone || '';
+  document.getElementById('admAddress').value = draft.address || '';
+
+  // 1st Installment
+  document.getElementById('admInitialPay').value = draft.initial_payment || '';
+  document.getElementById('admPayMode').value = draft.payment_mode || 'Cash';
+  document.getElementById('admPayRef').value = draft.payment_ref || '';
+
+  // Discount & Approval State
+  document.getElementById('admDiscountAmount').value = draft.discount_amount || '';
+  document.getElementById('admDiscountReason').value = draft.discount_reason || '';
+
+  // Recalculate base fee
+  recalculateBaseFee();
+
+  // Restore discount approval state & verify with server
+  const dState = draft.discount_approval_state || {};
+  currentDiscountApprovalState = {
+    status: dState.status || 'None',
+    requestId: dState.requestId || null,
+    requestedAmount: dState.requestedAmount || (parseFloat(draft.discount_amount) || 0),
+    approvedAmount: dState.approvedAmount || 0,
+    pollTimer: null
+  };
+
+  const reqBtn = document.getElementById('btnRequestDiscountApproval');
+  const modBtn = document.getElementById('btnModifyDiscount');
+  const badge = document.getElementById('discountStatusBadge');
+  const alertBox = document.getElementById('discountBlockAlert');
+  const alertText = document.getElementById('discountBlockAlertText');
+  const submitBtn = document.getElementById('btnSubmitAdmission');
+
+  if (currentDiscountApprovalState.requestId) {
+    try {
+      const res = await fetch(`/api/discounts/status/${currentDiscountApprovalState.requestId}`);
+      if (res.ok) {
+        const reqData = await res.json();
+        currentDiscountApprovalState.status = reqData.status;
+        if (reqData.status === 'Approved') {
+          currentDiscountApprovalState.approvedAmount = reqData.approved_discount;
+          document.getElementById('admDiscountAmount').value = reqData.approved_discount;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not check discount status:", e);
+    }
+  }
+
+  // Set UI according to state
+  if (currentDiscountApprovalState.status === 'Approved') {
+    document.getElementById('admDiscountAmount').disabled = true;
+    document.getElementById('admDiscountReason').disabled = true;
+    reqBtn.classList.add('hidden');
+    modBtn.classList.remove('hidden');
+    badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300";
+    badge.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i> Discount Approved: ₹ ${Number(currentDiscountApprovalState.approvedAmount).toLocaleString('en-IN')}`;
+    alertBox.className = "bg-emerald-50 text-emerald-800 text-xs p-2.5 rounded-xl border border-emerald-200 flex items-center space-x-2";
+    alertBox.innerHTML = `<i class="fa-solid fa-check-double text-emerald-600"></i> <span>Discount has been APPROVED by Admin! You may now complete admission.</span>`;
+    alertBox.classList.remove('hidden');
+    submitBtn.disabled = false;
+  } else if (currentDiscountApprovalState.status === 'Pending') {
+    document.getElementById('admDiscountAmount').disabled = true;
+    document.getElementById('admDiscountReason').disabled = true;
+    reqBtn.classList.add('hidden');
+    modBtn.classList.remove('hidden');
+    badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-300 animate-pulse";
+    badge.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Waiting for Admin Approval (Req #${currentDiscountApprovalState.requestId})...`;
+    alertBox.className = "bg-rose-50 text-rose-700 text-xs p-2.5 rounded-xl border border-rose-200 flex items-center space-x-2";
+    alertBox.classList.remove('hidden');
+    alertText.innerText = "Request sent to Admin! Waiting for Admin to approve. Once approved, the status will automatically change here and unlock admission submission.";
+    submitBtn.disabled = true;
+
+    clearInterval(currentDiscountApprovalState.pollTimer);
+    currentDiscountApprovalState.pollTimer = setInterval(pollDiscountStatus, 2000);
+  } else if (currentDiscountApprovalState.status === 'Rejected') {
+    document.getElementById('admDiscountAmount').disabled = true;
+    document.getElementById('admDiscountReason').disabled = true;
+    reqBtn.classList.add('hidden');
+    modBtn.classList.remove('hidden');
+    badge.className = "text-xs font-bold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300";
+    badge.innerHTML = `<i class="fa-solid fa-circle-xmark text-rose-600 mr-1"></i> Discount Rejected by Admin`;
+    alertBox.className = "bg-rose-50 text-rose-700 text-xs p-2.5 rounded-xl border border-rose-200 flex items-center space-x-2";
+    alertBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-rose-500"></i> <span>Discount was rejected. Click "Modify Discount" to change amount or set to 0.</span>`;
+    alertBox.classList.remove('hidden');
+    submitBtn.disabled = true;
+  } else {
+    // Normal / none
+    const disc = parseFloat(document.getElementById('admDiscountAmount').value) || 0;
+    if (disc > 0) {
+      onDiscountInputChanged();
+    } else {
+      resetAdmissionFormState();
+      activeAdmissionDraftId = draft.id;
+    }
+  }
+
+  updateAgreedFeePreview();
 }
 
 // ================= ADMISSION MODIFICATION & CANCELLATION QUEUE (ADMIN) =================
@@ -1563,6 +1949,9 @@ async function actionImportBatch(batchId, action, studentCount) {
 
 function openRequestEditModal() {
   if (!currentStudent) return alert("Select a student first!");
+  if (currentStudent._pending_change && currentStudent._pending_change.request_type === 'EDIT_DETAILS') {
+    return alert(`An edit details request for this student is ALREADY PENDING Admin approval!\n\nSubmitted by: ${currentStudent._pending_change.requested_by}\nReason: ${currentStudent._pending_change.reason}\n\nPlease wait for the School Admin to Approve or Reject before submitting another request.`);
+  }
 
   document.getElementById('reqEditStudentName').value = currentStudent.student_name || '';
   if (document.getElementById('reqEditRollNo')) {
@@ -1628,6 +2017,9 @@ async function submitRequestEditForm(e) {
 
 function openRequestCancelModal() {
   if (!currentStudent) return alert("Select a student first!");
+  if (currentStudent._pending_change && currentStudent._pending_change.request_type === 'CANCEL_ADMISSION') {
+    return alert(`An admission cancellation request for this student is ALREADY PENDING Admin approval!\n\nSubmitted by: ${currentStudent._pending_change.requested_by}\nReason: ${currentStudent._pending_change.reason}\n\nPlease wait for the School Admin to Approve or Reject before submitting another request.`);
+  }
   document.getElementById('reqCancelReason').value = '';
   document.getElementById('requestCancelModal').classList.remove('hidden');
 }
@@ -1672,6 +2064,9 @@ async function submitRequestCancelForm(e) {
 
 function openReviseFeeModal() {
   if (!currentStudent) return alert("Select a student first!");
+  if (currentStudent._pending_change && currentStudent._pending_change.request_type === 'REVISE_FEE') {
+    return alert(`A fee revision request for this student is ALREADY PENDING Admin approval!\n\nSubmitted by: ${currentStudent._pending_change.requested_by}\nReason: ${currentStudent._pending_change.reason}\n\nPlease wait for the School Admin to Approve or Reject before submitting another request.`);
+  }
   const isAdmin = currentUser && (currentUser.role === 'T1' || currentUser.role === 'T2');
 
   const modalTitle = document.getElementById('reviseFeeModalTitle');

@@ -1,7 +1,7 @@
 {
-  "version": "1.2.2",
+  "version": "1.2.3",
   "released_at": "2026-10-27",
-  "notes": "Fixed targeted user lookup for Super Admin PIN changes, removed default PIN hints from UI, masked PIN input, and added auto-clearing of credentials on logout.",
+  "notes": "Added pending state and duplicate prevention for fee revisions, and implemented admission draft save/resume workflow with live discount approval status tracking.",
   "files": [
     "index.html",
     "app.js",

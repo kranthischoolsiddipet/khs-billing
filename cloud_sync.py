@@ -191,6 +191,45 @@ def pull_cloud_data_into_local_db(sync_users: bool = True):
         except Exception as e_ip:
             print(f"[PULL IP LOGS NOTICE]: {e_ip}")
 
+        # 7. Pull Admission Change Requests (Fee Revisions, Details Changes, Cancellations)
+        try:
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT id, student_id, admission_no, request_type, current_data, proposed_data, reason, requested_by, status, admin_remarks, reviewed_by, created_at, reviewed_at FROM admission_change_requests ORDER BY id DESC LIMIT 200;"}], cfg['db_url'], cfg['auth_token'])
+            if ok and res.get('results'):
+                rows = res['results'][0]['response']['result']['rows']
+                for r in rows:
+                    vals = [c.get('value') for c in r]
+                    cur.execute("""
+                        INSERT INTO admission_change_requests (id, student_id, admission_no, request_type, current_data, proposed_data, reason, requested_by, status, admin_remarks, reviewed_by, created_at, reviewed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            status = excluded.status,
+                            admin_remarks = excluded.admin_remarks,
+                            reviewed_by = excluded.reviewed_by,
+                            reviewed_at = excluded.reviewed_at;
+                    """, vals)
+        except Exception as e_acr:
+            print(f"[PULL ADMISSION CHANGES NOTICE]: {e_acr}")
+
+        # 8. Pull Discount Requests
+        try:
+            ok, res = execute_remote_turso_queries([{"sql": "SELECT id, student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status, approved_by, approved_discount, admin_remarks, created_at, actioned_at FROM discount_requests ORDER BY id DESC LIMIT 200;"}], cfg['db_url'], cfg['auth_token'])
+            if ok and res.get('results'):
+                rows = res['results'][0]['response']['result']['rows']
+                for r in rows:
+                    vals = [c.get('value') for c in r]
+                    cur.execute("""
+                        INSERT INTO discount_requests (id, student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status, approved_by, approved_discount, admin_remarks, created_at, actioned_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            status = excluded.status,
+                            approved_by = excluded.approved_by,
+                            approved_discount = excluded.approved_discount,
+                            admin_remarks = excluded.admin_remarks,
+                            actioned_at = excluded.actioned_at;
+                    """, vals)
+        except Exception as e_dr:
+            print(f"[PULL DISCOUNT REQUESTS NOTICE]: {e_dr}")
+
         conn.commit()
         conn.close()
         return True, "Cloud pull complete"
@@ -374,7 +413,24 @@ def init_remote_schema_if_needed(db_url: str, auth_token: str):
             );
         """},
         {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_date ON ip_access_logs(date_only);"},
-        {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);"}
+        {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);"},
+        {"sql": """
+            CREATE TABLE IF NOT EXISTS admission_change_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                admission_no TEXT NOT NULL,
+                request_type TEXT NOT NULL,
+                current_data TEXT NOT NULL,
+                proposed_data TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                requested_by TEXT NOT NULL,
+                status TEXT DEFAULT 'Pending',
+                admin_remarks TEXT,
+                reviewed_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TEXT
+            );
+        """}
     ]
     return execute_remote_turso_queries(tables_sql, db_url, auth_token)
 
@@ -631,6 +687,52 @@ def push_local_outbox_to_cloud():
             queries.append({
                 "sql": "UPDATE users SET session_token = ? WHERE username = ?;",
                 "args": [data.get('session_token', ''), data.get('username', '')]
+            })
+
+        elif etype == 'admission_change' and op == 'INSERT':
+            queries.append({
+                "sql": """
+                    INSERT INTO admission_change_requests (
+                        id, student_id, admission_no, request_type, current_data, proposed_data, reason, requested_by, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+                    ON CONFLICT(id) DO UPDATE SET
+                        status = 'Pending',
+                        reason = excluded.reason;
+                """,
+                "args": [
+                    int(data.get('id', 0)), int(data.get('student_id', 0)), data.get('admission_no', ''),
+                    data.get('request_type', ''), data.get('current_data', '{}'), data.get('proposed_data', '{}'),
+                    data.get('reason', ''), data.get('requested_by', 'frontdesk')
+                ]
+            })
+
+        elif etype == 'admission_change' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE admission_change_requests SET status = ?, admin_remarks = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                "args": [data.get('status', 'Pending'), data.get('admin_remarks', ''), data.get('reviewed_by', 'admin'), int(data.get('id', 0))]
+            })
+
+        elif etype == 'discount_request' and op == 'INSERT':
+            queries.append({
+                "sql": """
+                    INSERT INTO discount_requests (
+                        id, student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+                    ON CONFLICT(id) DO UPDATE SET
+                        status = 'Pending',
+                        requested_discount = excluded.requested_discount;
+                """,
+                "args": [
+                    int(data.get('id', 0)), data.get('student_id'), data.get('admission_no', ''),
+                    data.get('student_name', ''), data.get('class_name', ''), float(data.get('standard_fee', 0.0)),
+                    float(data.get('requested_discount', 0.0)), data.get('reason', ''), data.get('requested_by', 'frontdesk')
+                ]
+            })
+
+        elif etype == 'discount_request' and op == 'UPDATE':
+            queries.append({
+                "sql": "UPDATE discount_requests SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                "args": [data.get('status', 'Approved'), data.get('approved_by', 'admin'), float(data.get('approved_discount', 0.0)), data.get('admin_remarks', ''), int(data.get('id', 0))]
             })
 
     success, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])
