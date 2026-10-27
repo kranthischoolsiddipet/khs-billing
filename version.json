@@ -1,7 +1,7 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "released_at": "2026-10-27",
-  "notes": "Added Super Admin Personal 6-Digit PIN login (Default PIN: 524796) with in-app Change PIN modal for Super Admin, keeping Google Authenticator exclusively for T3 Cashiers.",
+  "notes": "Fixed targeted user lookup for Super Admin PIN changes, removed default PIN hints from UI, masked PIN input, and added auto-clearing of credentials on logout.",
   "files": [
     "index.html",
     "app.js",

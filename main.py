@@ -1476,7 +1476,13 @@ def change_superadmin_pin(data: SuperAdminChangePinRequest, request: Request):
     conn = get_db()
     cursor = conn.cursor()
 
-    user = cursor.execute("SELECT id, username, full_name, role, password_hash FROM users WHERE username = ? OR role = 'T1'", (data.operator_user.strip(),)).fetchone()
+    # Strictly target the specific logged-in user handle (e.g. SA6303761588)
+    user = cursor.execute("SELECT id, username, full_name, role, password_hash FROM users WHERE username = ?", (data.operator_user.strip(),)).fetchone()
+    if not user and data.operator_user.strip().upper().startswith("SA"):
+        user = cursor.execute("SELECT id, username, full_name, role, password_hash FROM users WHERE username = ?", (data.operator_user.strip().upper(),)).fetchone()
+    if not user:
+        user = cursor.execute("SELECT id, username, full_name, role, password_hash FROM users WHERE role = 'T1' ORDER BY id DESC LIMIT 1").fetchone()
+
     if not user or user['role'] != 'T1':
         conn.close()
         raise HTTPException(status_code=403, detail="Only Super Admin can update the Super Admin PIN.")

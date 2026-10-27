@@ -238,6 +238,17 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function openLoginModal() {
+  // Clear any previously entered values and reset UI
+  const mobileInput = document.getElementById('otpMobileInput');
+  const codeInput = document.getElementById('otpCodeInput');
+  const inputSec = document.getElementById('otpInputSection');
+  if (mobileInput) mobileInput.value = '';
+  if (codeInput) {
+    codeInput.value = '';
+    codeInput.placeholder = '';
+  }
+  if (inputSec) inputSec.classList.add('hidden');
+  
   document.getElementById('loginModal').classList.remove('hidden');
 }
 
@@ -268,6 +279,12 @@ async function handleLoginSubmit(e) {
     if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     localStorage.setItem('khs_last_active', String(Date.now()));
+
+    // Wipe sensitive inputs immediately from DOM memory upon successful login
+    document.getElementById('otpCodeInput').value = '';
+    document.getElementById('otpMobileInput').value = '';
+    document.getElementById('otpInputSection').classList.add('hidden');
+
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
     const main = document.getElementById('appMainContainer');
@@ -2329,7 +2346,7 @@ async function handleContinueMobileLogin(e) {
         </p>
       `;
       if (label) label.innerText = "Enter Super Admin 6-Digit PIN *";
-      if (codeInput) codeInput.placeholder = "Enter PIN (Default: 524796)";
+      if (codeInput) codeInput.placeholder = "Enter 6-digit PIN";
     } else if (data.has_authenticator) {
       notice.className = "bg-indigo-50 p-3 rounded-xl border border-indigo-200 text-xs text-indigo-900 space-y-1";
       notice.innerHTML = `
@@ -2446,6 +2463,12 @@ async function handleVerifyOtpSubmit(e) {
     if (data.session_id) sessionStorage.setItem('khs_session_id', data.session_id);
     localStorage.setItem('khs_user', JSON.stringify(currentUser));
     localStorage.setItem('khs_last_active', String(Date.now()));
+
+    // Wipe sensitive inputs immediately from DOM memory upon successful login
+    document.getElementById('otpCodeInput').value = '';
+    document.getElementById('otpMobileInput').value = '';
+    document.getElementById('otpInputSection').classList.add('hidden');
+
     document.getElementById('loginModal').classList.add('hidden');
     const header = document.getElementById('appTopHeader');
     const main = document.getElementById('appMainContainer');
