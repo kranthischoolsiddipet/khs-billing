@@ -1879,7 +1879,31 @@ def request_admission_change(req: AdmissionChangeRequest, operator_user: str = Q
     conn.commit()
     conn.close()
 
-    msg_type = "Admission Cancellation" if req.request_type == 'CANCEL_ADMISSION' else "Admission Details Modification"
+    # Queue cloud sync for change request
+    try:
+        import cloud_sync
+        cloud_sync.queue_transaction_locally('admission_change', f"{req.student_id}_{req_id}", 'INSERT', {
+            "id": req_id,
+            "student_id": req.student_id,
+            "admission_no": student['admission_no'],
+            "request_type": req.request_type,
+            "current_data": current_data_json,
+            "proposed_data": proposed_data_json,
+            "reason": req.reason.strip(),
+            "requested_by": operator_user,
+            "status": 'Pending',
+            "created_at": datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
+        }, student['branch'] or 'Branch 1')
+        cloud_sync.push_local_outbox_to_cloud()
+    except Exception:
+        pass
+
+    if req.request_type == 'REVISE_FEE':
+        msg_type = "Fee Revision"
+    elif req.request_type == 'CANCEL_ADMISSION':
+        msg_type = "Admission Cancellation"
+    else:
+        msg_type = "Admission Details Modification"
     return {
         "status": "success",
         "request_id": req_id,
@@ -1997,15 +2021,53 @@ def action_admission_change(req: AdmissionChangeActionRequest, approver_user: st
                 vals.append(student_id)
                 cursor.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = ?", vals)
 
+        # Queue cloud sync for the request decision
+        try:
+            now_actioned = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
+            student_obj = cursor.execute("SELECT branch, admission_no FROM students WHERE id = ?", (student_id,)).fetchone()
+            b_val = student_obj['branch'] if student_obj else 'Branch 1'
+            cloud_sync.queue_transaction_locally('admission_change', f"{student_id}_{req.request_id}", 'UPDATE', {
+                "id": req.request_id,
+                "status": 'Approved',
+                "reviewed_by": approver_user,
+                "admin_remarks": req.admin_remarks,
+                "reviewed_at": now_actioned
+            }, b_val)
+            # Log audit activity
+            cursor.execute("""
+                INSERT INTO user_activity_logs (
+                    username, action_type, description, ip_address, device_info, timestamp
+                ) VALUES (?, 'FEE_REVISION', ?, 'Internal/System', 'Web App', ?)
+            """, (approver_user, f"Approved {req_row['request_type']} request #{req.request_id} for admission {req_row['admission_no']}. Remarks: {req.admin_remarks or 'None'}", now_actioned))
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
         return {"status": "success", "message": f"Admission {req_row['request_type']} has been APPROVED and applied."}
     else:
+        now_actioned = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute("""
             UPDATE admission_change_requests 
             SET status = 'Rejected', reviewed_by = ?, admin_remarks = ?, reviewed_at = CURRENT_TIMESTAMP 
             WHERE id = ?
         """, (approver_user, req.admin_remarks, req.request_id))
+
+        try:
+            student_obj = cursor.execute("SELECT branch FROM students WHERE id = ?", (student_id,)).fetchone()
+            b_val = student_obj['branch'] if student_obj else 'Branch 1'
+            cloud_sync.queue_transaction_locally('admission_change', f"{student_id}_{req.request_id}", 'UPDATE', {
+                "id": req.request_id,
+                "status": 'Rejected',
+                "reviewed_by": approver_user,
+                "admin_remarks": req.admin_remarks,
+                "reviewed_at": now_actioned
+            }, b_val)
+            cloud_sync.push_local_outbox_to_cloud()
+        except Exception:
+            pass
+
         conn.commit()
         conn.close()
         return {"status": "success", "message": f"Admission change request has been REJECTED."}
@@ -2279,6 +2341,13 @@ def get_student_statement(student_id: int):
         ORDER BY id DESC LIMIT 1
     """, (student_id,)).fetchone()
 
+    # Retrieve all change and fee revision history for this student
+    history_rows = conn.execute("""
+        SELECT * FROM admission_change_requests 
+        WHERE student_id = ? 
+        ORDER BY id DESC
+    """, (student_id,)).fetchall()
+
     conn.close()
     total_paid = sum(p['amount_paid'] for p in payments)
     balance = student['final_agreed_fee'] - total_paid
@@ -2287,12 +2356,20 @@ def get_student_statement(student_id: int):
     if pending_change_dict:
         pending_change_dict['proposed_data'] = json.loads(pending_change_dict['proposed_data'] or '{}')
 
+    parsed_history = []
+    for hr in history_rows:
+        hd = dict_from_row(hr)
+        hd['current_data'] = json.loads(hd['current_data'] or '{}') if hd.get('current_data') else {}
+        hd['proposed_data'] = json.loads(hd['proposed_data'] or '{}') if hd.get('proposed_data') else {}
+        parsed_history.append(hd)
+
     return {
         "student": dict_from_row(student),
         "payments": [dict_from_row(p) for p in payments],
         "total_paid": total_paid,
         "balance_due": max(0.0, balance),
-        "pending_change": pending_change_dict
+        "pending_change": pending_change_dict,
+        "change_history": parsed_history
     }
 
 @app.post("/api/payments/collect")

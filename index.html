@@ -395,6 +395,32 @@
             </div>
           </div>
 
+          <!-- Student Governance & Fee Revision Log -->
+          <div id="studentChangeHistoryContainer" class="hidden mt-4 pt-3 border-t border-slate-200">
+            <h4 class="text-xs font-bold text-slate-800 mb-2 flex items-center space-x-1.5">
+              <i class="fa-solid fa-clock-rotate-left text-indigo-600"></i>
+              <span>Fee Revision & Governance History</span>
+            </h4>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th class="p-2">Date & Time</th>
+                    <th class="p-2">Request Type</th>
+                    <th class="p-2">Details / Change</th>
+                    <th class="p-2">Reason</th>
+                    <th class="p-2">Requested By</th>
+                    <th class="p-2">Status</th>
+                    <th class="p-2">Reviewed By & Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="studentChangeHistoryRows" class="divide-y divide-slate-100 text-slate-700">
+                  <!-- Populated dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
 
       </div>

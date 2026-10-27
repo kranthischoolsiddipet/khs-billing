@@ -1,7 +1,7 @@
 {
-  "version": "1.2.3",
+  "version": "1.2.4",
   "released_at": "2026-10-27",
-  "notes": "Added pending state and duplicate prevention for fee revisions, and implemented admission draft save/resume workflow with live discount approval status tracking.",
+  "notes": "Added Fee Revision and Governance history audit trail to student profile, enabled total pending notifications for admission changes and discounts, and automated cloud sync for fee revisions.",
   "files": [
     "index.html",
     "app.js",

@@ -426,6 +426,11 @@ function applyUserRoleUI() {
     if (el) el.style.display = isAdmin ? '' : 'none';
   });
 
+  // Keep badge counts updated for admin
+  if (isAdmin) {
+    updateApprovalsBadge();
+  }
+
   // Re-render class-wise table if currently loaded so cells match role
   if (classWiseLoadedStudents && classWiseLoadedStudents.length > 0) {
     renderClassWiseTable(classWiseLoadedStudents);
@@ -780,6 +785,71 @@ async function selectStudent(studentId, isBackgroundPoll = false) {
           </td>
         </tr>
       `).join('');
+    }
+
+    // Populate Fee Revision & Governance History table
+    const changeHistContainer = document.getElementById('studentChangeHistoryContainer');
+    const changeHistTable = document.getElementById('studentChangeHistoryRows');
+    if (changeHistContainer && changeHistTable) {
+      const historyList = data.change_history || [];
+      if (historyList.length > 0) {
+        changeHistContainer.classList.remove('hidden');
+        changeHistTable.innerHTML = historyList.map(h => {
+          let typeBadge = '';
+          let changeDetails = '';
+          const prop = h.proposed_data || {};
+          const curr = h.current_data || {};
+
+          if (h.request_type === 'REVISE_FEE') {
+            typeBadge = `<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-file-invoice-dollar mr-1"></i>Fee Revision</span>`;
+            const oldFee = Number(prop.previous_agreed_fee || curr.final_agreed_fee || 0);
+            const newFee = Number(prop.new_agreed_fee || 0);
+            const diff = newFee - oldFee;
+            changeDetails = `
+              <div class="font-bold text-slate-800">
+                ₹ ${oldFee.toLocaleString('en-IN')} <i class="fa-solid fa-arrow-right text-[10px] text-slate-400 mx-1"></i> <span class="text-indigo-700 font-black">₹ ${newFee.toLocaleString('en-IN')}</span>
+              </div>
+              <div class="text-[10px] font-bold ${diff < 0 ? 'text-emerald-600' : 'text-slate-500'}">
+                ${diff < 0 ? 'Concession / Discount: -₹ ' + Math.abs(diff).toLocaleString('en-IN') : (diff > 0 ? '+₹ ' + diff.toLocaleString('en-IN') : 'No net change')}
+              </div>
+            `;
+          } else if (h.request_type === 'CANCEL_ADMISSION') {
+            typeBadge = `<span class="bg-rose-100 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-ban mr-1"></i>Cancellation</span>`;
+            changeDetails = `<span class="text-rose-700 font-bold">Admission Cancellation Request</span>`;
+          } else {
+            typeBadge = `<span class="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-pen mr-1"></i>Edit Details</span>`;
+            changeDetails = `<span class="text-slate-700 font-bold">Student info modification</span>`;
+          }
+
+          let statusBadge = '';
+          if (h.status === 'Approved') {
+            statusBadge = `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-300"><i class="fa-solid fa-check mr-1"></i>Approved</span>`;
+          } else if (h.status === 'Rejected') {
+            statusBadge = `<span class="bg-rose-100 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-rose-300"><i class="fa-solid fa-xmark mr-1"></i>Rejected</span>`;
+          } else {
+            statusBadge = `<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-300 animate-pulse"><i class="fa-solid fa-clock mr-1"></i>Pending Admin Approval</span>`;
+          }
+
+          const actionDate = h.reviewed_at || h.created_at || '--';
+
+          return `
+            <tr class="hover:bg-slate-50">
+              <td class="p-2.5 font-mono text-[11px] text-slate-600 whitespace-nowrap">${actionDate}</td>
+              <td class="p-2.5">${typeBadge}</td>
+              <td class="p-2.5">${changeDetails}</td>
+              <td class="p-2.5 text-slate-700 italic text-[11px]">"${h.reason || 'None specified'}"</td>
+              <td class="p-2.5 text-[11px] font-bold text-slate-700">${h.requested_by || '--'}</td>
+              <td class="p-2.5 whitespace-nowrap">${statusBadge}</td>
+              <td class="p-2.5 text-[11px]">
+                <div class="font-bold text-slate-700">${h.reviewed_by || '--'}</div>
+                ${h.admin_remarks ? `<div class="text-[10px] text-slate-500 italic">"${h.admin_remarks}"</div>` : ''}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } else {
+        changeHistContainer.classList.add('hidden');
+      }
     }
 
   } catch (err) {
@@ -1279,7 +1349,35 @@ async function handleAdmissionSubmit(e) {
   }
 }
 
-// ================= DISCOUNT APPROVAL QUEUE (T1 & T2) =================
+// ================= DISCOUNT & ADMISSION CHANGE APPROVAL QUEUE (T1 & T2) =================
+
+async function updateApprovalsBadge() {
+  try {
+    if (!currentUser || !['T1', 'T2'].includes(currentUser.role)) return;
+    const [discRes, changeRes] = await Promise.all([
+      fetch('/api/discounts/pending'),
+      fetch('/api/admissions/pending-changes')
+    ]);
+    const discList = discRes.ok ? await discRes.json() : [];
+    const changeList = changeRes.ok ? await changeRes.json() : [];
+    const totalCount = (discList.length || 0) + (changeList.length || 0);
+
+    const badge = document.getElementById('pendingDiscountBadge');
+    const dot = document.getElementById('navDiscountDot');
+    const countEl = document.getElementById('pendingDiscountCount');
+
+    if (totalCount > 0) {
+      if (badge) badge.classList.remove('hidden');
+      if (dot) dot.classList.remove('hidden');
+      if (countEl) countEl.innerText = totalCount;
+    } else {
+      if (badge) badge.classList.add('hidden');
+      if (dot) dot.classList.add('hidden');
+    }
+  } catch (err) {
+    console.error("Error updating approvals badge:", err);
+  }
+}
 
 async function loadPendingDiscounts() {
   try {
@@ -1287,17 +1385,9 @@ async function loadPendingDiscounts() {
     pendingDiscountsList = await res.json();
 
     const count = pendingDiscountsList.length;
-    const badge = document.getElementById('pendingDiscountBadge');
-    const dot = document.getElementById('navDiscountDot');
-    
-    if (count > 0 && currentUser && ['T1', 'T2'].includes(currentUser.role)) {
-      badge.classList.remove('hidden');
-      dot.classList.remove('hidden');
-      document.getElementById('pendingDiscountCount').innerText = count;
-    } else {
-      badge.classList.add('hidden');
-      dot.classList.add('hidden');
-    }
+
+    // Refresh overall approvals badge
+    updateApprovalsBadge();
 
     const table = document.getElementById('discountTable');
     const emptyMsg = document.getElementById('noDiscountsMsg');
@@ -1800,16 +1890,19 @@ async function loadPendingAdmissionChanges() {
     }
   } catch (err) {
     console.error("Error loading admission changes:", err);
+  } finally {
+    updateApprovalsBadge();
   }
 }
 
 async function actionAdmissionChange(requestId, action, type) {
   let remarks = "";
+  const typeLabel = (type === 'CANCEL_ADMISSION') ? 'Admission Cancellation' : (type === 'REVISE_FEE' ? 'Fee Revision' : 'Details Modification');
   if (action === 'Approve') {
-    if (!confirm(`Are you sure you want to APPROVE this ${type === 'CANCEL_ADMISSION' ? 'Admission Cancellation' : 'Details Modification'}?`)) return;
+    if (!confirm(`Are you sure you want to APPROVE this ${typeLabel}?`)) return;
     remarks = prompt("Admin Approval Remarks (Optional):", "Approved by Management") || "";
   } else {
-    if (!confirm(`Are you sure you want to REJECT this request?`)) return;
+    if (!confirm(`Are you sure you want to REJECT this ${typeLabel}?`)) return;
     remarks = prompt("Reason for Rejection:", "Rejected by Admin") || "Rejected";
   }
 
@@ -1834,6 +1927,7 @@ async function actionAdmissionChange(requestId, action, type) {
 
     alert(data.message);
     loadPendingAdmissionChanges();
+    updateApprovalsBadge();
     if (currentStudent) {
       selectStudent(currentStudent.id);
     }
