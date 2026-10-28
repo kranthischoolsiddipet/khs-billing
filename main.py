@@ -1550,12 +1550,29 @@ def change_superadmin_pin(data: SuperAdminChangePinRequest, request: Request):
 
 # ----------------- FEE STRUCTURE APIS (T1 & T2) -----------------
 
+# Canonical class order from pre-primary to high school
+CANONICAL_CLASS_ORDER = [
+    'NURSERY', 'LKG', 'UKG', 'PP1', 'PP2',
+    'CLASS 1', 'CLASS 2', 'CLASS 3', 'CLASS 4', 'CLASS 5',
+    'CLASS 6', 'CLASS 7', 'CLASS 8', 'CLASS 9', 'CLASS 10'
+]
+
+def class_sort_key(class_name: str) -> int:
+    clean = str(class_name or '').strip().upper()
+    try:
+        return CANONICAL_CLASS_ORDER.index(clean)
+    except ValueError:
+        return 999
+
 @app.get("/api/fee-structures")
 def get_fee_structures():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM fee_structures ORDER BY class_name ASC, student_type ASC").fetchall()
+    rows = conn.execute("SELECT * FROM fee_structures").fetchall()
     conn.close()
-    return [dict_from_row(r) for r in rows]
+    result = [dict_from_row(r) for r in rows]
+    # Sort logically: PP1 -> PP2 -> Class 1 ... Class 10, then Day Scholar before Residential
+    result.sort(key=lambda x: (class_sort_key(x.get('class_name')), 0 if x.get('student_type') == 'Day Scholar' else 1))
+    return result
 
 @app.post("/api/fee-structures/update")
 def update_fee_structure(data: FeeStructureUpdate, request: Request):
@@ -1579,6 +1596,37 @@ def update_fee_structure(data: FeeStructureUpdate, request: Request):
     """, (data.class_name, data.student_type, data.term_name, data.tuition_fee, data.activity_fee, data.exam_fee, data.residential_fee, data.default_transport_fee, total))
     conn.commit()
     conn.close()
+
+    # Synchronously sync fee structure to Turso Cloud database so background sync does not revert it!
+    try:
+        import cloud_sync
+        cloud_sync.sync_fee_structure_direct(
+            class_name=data.class_name,
+            student_type=data.student_type,
+            term_name=data.term_name,
+            tuition_fee=data.tuition_fee,
+            activity_fee=data.activity_fee,
+            exam_fee=data.exam_fee,
+            residential_fee=data.residential_fee,
+            default_transport_fee=data.default_transport_fee,
+            total_base_fee=total,
+            updated_by='Admin'
+        )
+        cloud_sync.queue_transaction_locally('fee_structure', f"{data.class_name}_{data.student_type}", 'UPDATE', {
+            "class_name": data.class_name,
+            "student_type": data.student_type,
+            "term_name": data.term_name,
+            "tuition_fee": data.tuition_fee,
+            "activity_fee": data.activity_fee,
+            "exam_fee": data.exam_fee,
+            "residential_fee": data.residential_fee,
+            "default_transport_fee": data.default_transport_fee,
+            "total_base_fee": total,
+            "updated_by": "Admin"
+        }, 'Branch 1')
+    except Exception as e:
+        print(f"[Fee Structure Cloud Sync error]: {e}")
+
     return {"status": "success", "message": f"Fee structure updated for {data.class_name} ({data.student_type})"}
 
 # ----------------- STUDENT ADMISSION & DISCOUNT -----------------
@@ -2977,7 +3025,7 @@ def get_receipt_data(token: str):
     conn = get_db()
     payment = conn.execute("""
         SELECT p.*, s.student_name, s.class_name, s.section, s.branch, s.student_type, s.has_transport, s.bus_route,
-               s.parent_name, s.parent_phone, s.discount_amount
+               s.parent_name, s.parent_phone, s.standard_fee, s.discount_amount, s.final_agreed_fee, s.discount_status
         FROM payments p
         JOIN students s ON p.student_id = s.id
         WHERE p.receipt_token = ?

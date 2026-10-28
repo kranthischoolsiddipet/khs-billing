@@ -1,9 +1,10 @@
 {
-  "version": "1.2.5",
-  "released_at": "2026-10-27",
-  "notes": "Enabled instant bidirectional cloud sync across all user logins, staff management, admissions, fee revisions, payments, and approvals.",
+  "version": "1.2.7",
+  "released_at": "2026-10-28",
+  "notes": "Enabled transparent concession / discount breakdown on receipts, ordered fee structures from PP1 to Class 10, and unified admin approvals history.",
   "files": [
     "index.html",
+    "receipt.html",
     "app.js",
     "main.py",
     "database.py",

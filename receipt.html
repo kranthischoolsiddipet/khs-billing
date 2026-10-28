@@ -162,30 +162,38 @@
         </div>
 
         <!-- Compact Financial Details Table -->
-        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2.5 bg-white/40 backdrop-blur-[0.5px]">
+        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2 bg-white/40 backdrop-blur-[0.5px]">
           <thead class="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
             <tr>
-              <th class="py-1 px-3">Installment / Purpose</th>
-              <th class="py-1 px-3">Payment Mode</th>
-              <th class="py-1 px-3">Ref / UTR</th>
-              <th class="py-1 px-3 text-right">Agreed Fee</th>
-              <th class="py-1 px-3 text-right">Previously Paid</th>
-              <th class="py-1 px-3 text-right">Paid Now</th>
-              <th class="py-1 px-3 text-right text-rose-700">Balance Due</th>
+              <th class="py-1 px-2.5">Installment / Purpose</th>
+              <th class="py-1 px-2">Payment Mode</th>
+              <th class="py-1 px-2">Ref / UTR</th>
+              <th class="py-1 px-2 text-right">Standard Fee</th>
+              <th class="py-1 px-2 text-right text-rose-700">Concession</th>
+              <th class="py-1 px-2 text-right font-extrabold text-indigo-950">Net Agreed</th>
+              <th class="py-1 px-2 text-right">Prev. Paid</th>
+              <th class="py-1 px-2 text-right text-emerald-800 font-extrabold">Paid Now</th>
+              <th class="py-1 px-2 text-right text-rose-700">Balance Due</th>
             </tr>
           </thead>
           <tbody class="text-slate-800">
             <tr>
-              <td class="py-1.5 px-3 font-semibold rInstallmentLabel">--</td>
-              <td class="py-1.5 px-3 font-semibold rPaymentMode">--</td>
-              <td class="py-1.5 px-3 font-mono text-[10px] rTxnRef">--</td>
-              <td class="py-1.5 px-3 text-right font-medium rTotalAgreed">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-medium rPrevPaid">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
+              <td class="py-1.5 px-2.5 font-semibold rInstallmentLabel">--</td>
+              <td class="py-1.5 px-2 font-semibold rPaymentMode">--</td>
+              <td class="py-1.5 px-2 font-mono text-[10px] rTxnRef">--</td>
+              <td class="py-1.5 px-2 text-right font-medium text-slate-600 rStandardFee">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-bold text-rose-600 rDiscountAmt">-₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-bold text-indigo-900 rTotalAgreed">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-medium rPrevPaid">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
             </tr>
           </tbody>
         </table>
+        <div class="rDiscountBanner hidden text-[9.5px] font-semibold text-emerald-900 bg-emerald-50/80 border border-emerald-200 rounded px-2 py-0.5 mb-2 flex items-center justify-between">
+          <span><i class="fa-solid fa-tags text-emerald-600 mr-1"></i>Special Fee Concession Approved by Management</span>
+          <span class="font-bold text-emerald-800 rDiscountNote">Concession: ₹ 0</span>
+        </div>
 
         <!-- Bottom Signatures & Notes -->
         <div class="flex items-center justify-between pt-1.5 text-[10px] text-slate-500 border-t border-slate-200">
@@ -253,30 +261,38 @@
         </div>
 
         <!-- Compact Financial Details Table -->
-        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2.5 bg-white/40 backdrop-blur-[0.5px]">
+        <table class="w-full text-[11px] text-left border border-slate-200 rounded-lg overflow-hidden mb-2 bg-white/40 backdrop-blur-[0.5px]">
           <thead class="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
             <tr>
-              <th class="py-1 px-3">Installment / Purpose</th>
-              <th class="py-1 px-3">Payment Mode</th>
-              <th class="py-1 px-3">Ref / UTR</th>
-              <th class="py-1 px-3 text-right">Agreed Fee</th>
-              <th class="py-1 px-3 text-right">Previously Paid</th>
-              <th class="py-1 px-3 text-right">Paid Now</th>
-              <th class="py-1 px-3 text-right text-rose-700">Balance Due</th>
+              <th class="py-1 px-2.5">Installment / Purpose</th>
+              <th class="py-1 px-2">Payment Mode</th>
+              <th class="py-1 px-2">Ref / UTR</th>
+              <th class="py-1 px-2 text-right">Standard Fee</th>
+              <th class="py-1 px-2 text-right text-rose-700">Concession</th>
+              <th class="py-1 px-2 text-right font-extrabold text-indigo-950">Net Agreed</th>
+              <th class="py-1 px-2 text-right">Prev. Paid</th>
+              <th class="py-1 px-2 text-right text-emerald-800 font-extrabold">Paid Now</th>
+              <th class="py-1 px-2 text-right text-rose-700">Balance Due</th>
             </tr>
           </thead>
           <tbody class="text-slate-800">
             <tr>
-              <td class="py-1.5 px-3 font-semibold rInstallmentLabel">--</td>
-              <td class="py-1.5 px-3 font-semibold rPaymentMode">--</td>
-              <td class="py-1.5 px-3 font-mono text-[10px] rTxnRef">--</td>
-              <td class="py-1.5 px-3 text-right font-medium rTotalAgreed">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-medium rPrevPaid">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
-              <td class="py-1.5 px-3 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
+              <td class="py-1.5 px-2.5 font-semibold rInstallmentLabel">--</td>
+              <td class="py-1.5 px-2 font-semibold rPaymentMode">--</td>
+              <td class="py-1.5 px-2 font-mono text-[10px] rTxnRef">--</td>
+              <td class="py-1.5 px-2 text-right font-medium text-slate-600 rStandardFee">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-bold text-rose-600 rDiscountAmt">-₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-bold text-indigo-900 rTotalAgreed">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-medium rPrevPaid">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-black text-emerald-700 rAmountPaid">₹ 0</td>
+              <td class="py-1.5 px-2 text-right font-black text-rose-600 rBalanceDue">₹ 0</td>
             </tr>
           </tbody>
         </table>
+        <div class="rDiscountBanner hidden text-[9.5px] font-semibold text-emerald-900 bg-emerald-50/80 border border-emerald-200 rounded px-2 py-0.5 mb-2 flex items-center justify-between">
+          <span><i class="fa-solid fa-tags text-emerald-600 mr-1"></i>Special Fee Concession Approved by Management</span>
+          <span class="font-bold text-emerald-800 rDiscountNote">Concession: ₹ 0</span>
+        </div>
 
         <!-- Bottom Signatures & Notes -->
         <div class="flex items-center justify-between pt-1.5 text-[10px] text-slate-500 border-t border-slate-200">
@@ -360,6 +376,20 @@
         document.querySelectorAll('.rAmountPaid').forEach(el => el.innerText = `₹ ${Number(p.amount_paid).toLocaleString('en-IN')}`);
 
         document.querySelectorAll('.rTotalAgreed').forEach(el => el.innerText = `₹ ${Number(p.total_agreed_fee).toLocaleString('en-IN')}`);
+        
+        // Populate Standard Gross Fee & Discount Concession breakdown
+        const stdFee = Number(p.standard_fee || p.total_agreed_fee || 0);
+        const discAmt = Number(p.discount_amount || 0);
+        document.querySelectorAll('.rStandardFee').forEach(el => el.innerText = `₹ ${stdFee.toLocaleString('en-IN')}`);
+        document.querySelectorAll('.rDiscountAmt').forEach(el => el.innerText = discAmt > 0 ? `-₹ ${discAmt.toLocaleString('en-IN')}` : '₹ 0');
+
+        if (discAmt > 0) {
+          document.querySelectorAll('.rDiscountBanner').forEach(el => el.classList.remove('hidden'));
+          document.querySelectorAll('.rDiscountNote').forEach(el => el.innerText = `Approved Concession: ₹ ${discAmt.toLocaleString('en-IN')}`);
+        } else {
+          document.querySelectorAll('.rDiscountBanner').forEach(el => el.classList.add('hidden'));
+        }
+
         document.querySelectorAll('.rPrevPaid').forEach(el => el.innerText = `₹ ${Number(p.previously_paid).toLocaleString('en-IN')}`);
         document.querySelectorAll('.rBalanceDue').forEach(el => el.innerText = `₹ ${Number(p.balance_due).toLocaleString('en-IN')}`);
         document.querySelectorAll('.rCashier').forEach(el => el.innerText = p.collected_by);

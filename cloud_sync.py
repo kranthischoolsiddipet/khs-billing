@@ -492,6 +492,46 @@ def sync_user_password_direct(username: str, password_hash: str):
         print(f"[SYNC PIN DIRECT ERROR]: {e}")
         return False
 
+def sync_fee_structure_direct(class_name: str, student_type: str, term_name: str, tuition_fee: float, activity_fee: float, exam_fee: float, residential_fee: float, default_transport_fee: float, total_base_fee: float, updated_by: str = "Admin"):
+    """
+    Synchronously updates fee structure on Turso Cloud Database!
+    Prevents background cloud pulls from overwriting newly updated fee master rates.
+    """
+    cfg = get_sync_config()
+    db_url = cfg.get("turso_db_url") or cfg.get("db_url") or DEFAULT_TURSO_URL
+    auth_token = cfg.get("turso_auth_token") or cfg.get("auth_token") or DEFAULT_TURSO_TOKEN
+    if not db_url or not auth_token:
+        return False
+    try:
+        sql = """
+            INSERT INTO fee_structures (
+                class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee,
+                residential_fee, default_transport_fee, total_base_fee, updated_by, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(class_name, student_type, term_name) DO UPDATE SET
+                tuition_fee = excluded.tuition_fee,
+                activity_fee = excluded.activity_fee,
+                exam_fee = excluded.exam_fee,
+                residential_fee = excluded.residential_fee,
+                default_transport_fee = excluded.default_transport_fee,
+                total_base_fee = excluded.total_base_fee,
+                updated_by = excluded.updated_by,
+                updated_at = CURRENT_TIMESTAMP;
+        """
+        ok, res = execute_remote_turso_queries([{
+            "sql": sql,
+            "args": [
+                class_name.strip(), student_type.strip(), term_name.strip(),
+                float(tuition_fee), float(activity_fee), float(exam_fee),
+                float(residential_fee), float(default_transport_fee),
+                float(total_base_fee), updated_by.strip()
+            ]
+        }], db_url, auth_token)
+        return ok
+    except Exception as e:
+        print(f"[SYNC FEE STRUCTURE DIRECT ERROR]: {e}")
+        return False
+
 def sync_student_agreed_fee_direct(admission_no: str, new_fee: float, calc_discount: float, request_id: int = None, approver_user: str = "admin", admin_remarks: str = ""):
     """
     Immediately and synchronously applies fee revision to Turso Cloud database!
@@ -910,6 +950,32 @@ def push_local_outbox_to_cloud():
             queries.append({
                 "sql": "UPDATE discount_requests SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = CURRENT_TIMESTAMP WHERE id = ?;",
                 "args": [data.get('status', 'Approved'), data.get('approved_by', 'admin'), float(data.get('approved_discount', 0.0)), data.get('admin_remarks', ''), int(data.get('id', 0))]
+            })
+
+        elif etype == 'fee_structure' and op in ['INSERT', 'UPDATE']:
+            queries.append({
+                "sql": """
+                    INSERT INTO fee_structures (
+                        class_name, student_type, term_name, tuition_fee, activity_fee, exam_fee,
+                        residential_fee, default_transport_fee, total_base_fee, updated_by, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(class_name, student_type, term_name) DO UPDATE SET
+                        tuition_fee = excluded.tuition_fee,
+                        activity_fee = excluded.activity_fee,
+                        exam_fee = excluded.exam_fee,
+                        residential_fee = excluded.residential_fee,
+                        default_transport_fee = excluded.default_transport_fee,
+                        total_base_fee = excluded.total_base_fee,
+                        updated_by = excluded.updated_by,
+                        updated_at = CURRENT_TIMESTAMP;
+                """,
+                "args": [
+                    data.get('class_name', '').strip(), data.get('student_type', 'Day Scholar').strip(),
+                    data.get('term_name', 'Annual').strip(), float(data.get('tuition_fee', 0.0)),
+                    float(data.get('activity_fee', 0.0)), float(data.get('exam_fee', 0.0)),
+                    float(data.get('residential_fee', 0.0)), float(data.get('default_transport_fee', 0.0)),
+                    float(data.get('total_base_fee', 0.0)), data.get('updated_by', 'Admin')
+                ]
             })
 
     success, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])

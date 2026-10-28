@@ -510,6 +510,9 @@ function switchTab(tabId) {
     }
   });
 
+  if (tabId === 'admit') {
+    recalculateBaseFee();
+  }
   if (tabId === 'classwise') loadClassWiseStudents();
   if (tabId === 'promote') loadPromotionRoster();
   if (tabId === 'discounts') {
@@ -2550,11 +2553,34 @@ async function handleReviseFeeFormSubmit(e) {
 
 // ================= FEE MASTER (T1 & T2) =================
 
+// Canonical school class sorting order from PP1 to Class 10
+const CANONICAL_CLASS_ORDER = [
+  'NURSERY', 'LKG', 'UKG', 'PP1', 'PP2',
+  'CLASS 1', 'CLASS 2', 'CLASS 3', 'CLASS 4', 'CLASS 5',
+  'CLASS 6', 'CLASS 7', 'CLASS 8', 'CLASS 9', 'CLASS 10'
+];
+
+function getClassSortIndex(cName) {
+  const clean = String(cName || '').trim().toUpperCase();
+  const idx = CANONICAL_CLASS_ORDER.indexOf(clean);
+  return idx !== -1 ? idx : 999;
+}
+
 async function loadFeeMaster() {
   try {
     const res = await fetch('/api/fee-structures');
-    const list = await res.json();
+    let list = await res.json();
     const rows = document.getElementById('feeMasterRows');
+
+    // Guarantee sorting in UI: PP1, PP2, Class 1 -> Class 10 (Day Scholar before Residential)
+    list.sort((a, b) => {
+      const idxA = getClassSortIndex(a.class_name);
+      const idxB = getClassSortIndex(b.class_name);
+      if (idxA !== idxB) return idxA - idxB;
+      const typeA = a.student_type === 'Day Scholar' ? 0 : 1;
+      const typeB = b.student_type === 'Day Scholar' ? 0 : 1;
+      return typeA - typeB;
+    });
 
     rows.innerHTML = list.map(f => `
       <tr class="hover:bg-slate-50">
