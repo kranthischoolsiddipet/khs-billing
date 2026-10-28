@@ -586,22 +586,55 @@ def sync_discount_request_direct(req_id: int, student_id: int, admission_no: str
 def sync_discount_action_direct(req_id: int, action: str, approver_user: str, approved_discount: float, admin_remarks: str = ""):
     """
     Immediately and synchronously updates discount request status (Approved/Rejected) on Turso Cloud!
+    Also synchronously updates the student's discount_amount, final_agreed_fee, and payments if the student is already admitted.
     """
     cfg = get_sync_config()
     if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
         return False
     try:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        sql = """
-            UPDATE discount_requests 
-            SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = ?
-            WHERE id = ?;
-        """
-        args = [
-            action.strip(), approver_user.strip(), float(approved_discount or 0.0),
-            (admin_remarks or '').strip(), now_str, int(req_id)
+        queries = [
+            {
+                "sql": """
+                    UPDATE discount_requests 
+                    SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = ?
+                    WHERE id = ?;
+                """,
+                "args": [
+                    action.strip(), approver_user.strip(), float(approved_discount or 0.0),
+                    (admin_remarks or '').strip(), now_str, int(req_id)
+                ]
+            }
         ]
-        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        if action == 'Approved':
+            # Check if this discount request is tied to an existing student in Turso cloud by admission_no
+            queries.append({
+                "sql": """
+                    UPDATE students 
+                    SET discount_amount = ?, final_agreed_fee = max(0.0, standard_fee - ?), discount_status = 'Approved'
+                    WHERE admission_no = (SELECT admission_no FROM discount_requests WHERE id = ?);
+                """,
+                "args": [float(approved_discount or 0.0), float(approved_discount or 0.0), int(req_id)]
+            })
+            queries.append({
+                "sql": """
+                    UPDATE payments 
+                    SET total_agreed_fee = (SELECT final_agreed_fee FROM students WHERE admission_no = (SELECT admission_no FROM discount_requests WHERE id = ?))
+                    WHERE admission_no = (SELECT admission_no FROM discount_requests WHERE id = ?);
+                """,
+                "args": [int(req_id), int(req_id)]
+            })
+        elif action == 'Rejected':
+            queries.append({
+                "sql": """
+                    UPDATE students 
+                    SET discount_status = 'Rejected'
+                    WHERE admission_no = (SELECT admission_no FROM discount_requests WHERE id = ?);
+                """,
+                "args": [int(req_id)]
+            })
+
+        ok, res = execute_remote_turso_queries(queries, cfg['db_url'], cfg['auth_token'])
         print(f"[DIRECT CLOUD DISCOUNT ACTION SYNC]: id={req_id}, action={action}, success={ok}")
         return ok
     except Exception as e:

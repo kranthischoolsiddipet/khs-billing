@@ -1346,6 +1346,18 @@ async function handleAdmissionSubmit(e) {
       deleteDraftAdmission(activeAdmissionDraftId, true);
       activeAdmissionDraftId = null;
     }
+    // Also clean up any matching saved draft by admission number
+    if (payload.admission_no) {
+      try {
+        const remainingDrafts = getSavedAdmissionDrafts();
+        const matched = remainingDrafts.find(d => d.admission_no === payload.admission_no || (d.formData && d.formData.admission_no === payload.admission_no));
+        if (matched) {
+          deleteDraftAdmission(matched.id, true);
+        }
+      } catch (e) {
+        console.warn('Draft cleanup error:', e);
+      }
+    }
     document.getElementById('admissionForm').reset();
     resetAdmissionFormState();
     toggleTransportSection();

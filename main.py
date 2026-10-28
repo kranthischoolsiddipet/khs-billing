@@ -1626,9 +1626,41 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
             discount_amount = req.requested_discount
             discount_status = "Approved"
         else:
-            # T3 needs approval
-            discount_status = "Pending"
-            needs_approval = True
+            # Check if this discount was already pre-approved via Pre-Admission Discount Request!
+            existing_approved = conn.execute("""
+                SELECT id, approved_discount, status FROM discount_requests
+                WHERE (admission_no = ? OR student_name = ?) AND status = 'Approved'
+                ORDER BY id DESC LIMIT 1
+            """, (req.admission_no.strip(), req.student_name.strip())).fetchone()
+
+            # If not found locally, check Turso cloud directly in real-time
+            if not existing_approved:
+                try:
+                    import cloud_sync
+                    cfg = cloud_sync.get_sync_config()
+                    if cfg.get("enabled") and cfg.get("db_url") and cfg.get("auth_token"):
+                        ok, res = cloud_sync.execute_remote_turso_queries([{
+                            "sql": "SELECT id, approved_discount, status FROM discount_requests WHERE (admission_no = ? OR student_name = ?) AND status = 'Approved' ORDER BY id DESC LIMIT 1;",
+                            "args": [req.admission_no.strip(), req.student_name.strip()]
+                        }], cfg['db_url'], cfg['auth_token'])
+                        if ok and res.get('results'):
+                            cloud_rows = res['results'][0]['response']['result']['rows']
+                            if cloud_rows:
+                                vals = [c.get('value') for c in cloud_rows[0]]
+                                existing_approved = {'id': vals[0], 'approved_discount': vals[1], 'status': vals[2]}
+                except Exception:
+                    pass
+
+            if existing_approved:
+                # Pre-approved by Admin! Apply discount immediately
+                approved_amt = float(existing_approved['approved_discount'] or req.requested_discount)
+                discount_amount = approved_amt
+                discount_status = "Approved"
+                needs_approval = False
+            else:
+                # T3 needs approval
+                discount_status = "Pending"
+                needs_approval = True
 
     final_agreed_fee = gross_fee - discount_amount
 
@@ -1651,6 +1683,10 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
         now_ist.strftime("%Y-%m-%d"), operator_user
     ))
     student_id = cursor.lastrowid
+
+    # Link student_id to existing pre-admission discount_requests if one was pre-approved
+    if existing_approved and existing_approved.get('id'):
+        cursor.execute("UPDATE discount_requests SET student_id = ? WHERE id = ?", (student_id, existing_approved['id']))
 
     # If discount needs approval, insert to discount_requests
     if needs_approval:
