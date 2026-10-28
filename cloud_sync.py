@@ -554,6 +554,60 @@ def sync_admission_change_request_direct(req_id: int, student_id: int, admission
         print(f"[SYNC ADMISSION CHANGE DIRECT ERROR]: {e}")
         return False
 
+def sync_discount_request_direct(req_id: int, student_id: int, admission_no: str, student_name: str, class_name: str, standard_fee: float, requested_discount: float, reason: str, requested_by: str):
+    """
+    Immediately and synchronously pushes new admission discount requests to Turso Cloud!
+    """
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        sql = """
+            INSERT INTO discount_requests (
+                id, student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')
+            ON CONFLICT(id) DO UPDATE SET
+                status = 'Pending',
+                reason = excluded.reason;
+        """
+        args = [
+            int(req_id), int(student_id) if student_id else None, (admission_no or '').strip(),
+            (student_name or '').strip(), (class_name or '').strip(),
+            float(standard_fee or 0.0), float(requested_discount or 0.0),
+            (reason or '').strip(), (requested_by or 'frontdesk').strip()
+        ]
+        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        print(f"[DIRECT CLOUD DISCOUNT REQUEST SYNC]: id={req_id}, student_name={student_name}, success={ok}")
+        return ok
+    except Exception as e:
+        print(f"[SYNC DISCOUNT REQUEST DIRECT ERROR]: {e}")
+        return False
+
+def sync_discount_action_direct(req_id: int, action: str, approver_user: str, approved_discount: float, admin_remarks: str = ""):
+    """
+    Immediately and synchronously updates discount request status (Approved/Rejected) on Turso Cloud!
+    """
+    cfg = get_sync_config()
+    if not cfg.get("enabled") or not cfg.get("db_url") or not cfg.get("auth_token"):
+        return False
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sql = """
+            UPDATE discount_requests 
+            SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = ?
+            WHERE id = ?;
+        """
+        args = [
+            action.strip(), approver_user.strip(), float(approved_discount or 0.0),
+            (admin_remarks or '').strip(), now_str, int(req_id)
+        ]
+        ok, res = execute_remote_turso_queries([{"sql": sql, "args": args}], cfg['db_url'], cfg['auth_token'])
+        print(f"[DIRECT CLOUD DISCOUNT ACTION SYNC]: id={req_id}, action={action}, success={ok}")
+        return ok
+    except Exception as e:
+        print(f"[SYNC DISCOUNT ACTION DIRECT ERROR]: {e}")
+        return False
+
 def push_local_outbox_to_cloud():
     """
     Pushes pending rows from sync_queue to Cloud Database via HTTP API.

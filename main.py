@@ -1813,6 +1813,23 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
     conn.commit()
     conn.close()
 
+    # Instant synchronous cloud sync
+    try:
+        import cloud_sync
+        cloud_sync.sync_discount_request_direct(
+            req_id=req_id,
+            student_id=None,
+            admission_no=req.admission_no.strip(),
+            student_name=req.student_name.strip(),
+            class_name=req.class_name,
+            standard_fee=req.standard_fee,
+            requested_discount=req.requested_discount,
+            reason=req.reason or '',
+            requested_by=operator_name
+        )
+    except Exception:
+        pass
+
     # Instant cloud sync
     try:
         import cloud_sync
@@ -1838,6 +1855,33 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
 def check_discount_status(request_id: int):
     conn = get_db()
     row = conn.execute("SELECT * FROM discount_requests WHERE id = ?", (request_id,)).fetchone()
+    
+    # If not found or still Pending locally, check Turso Cloud on the fly!
+    if not row or row['status'] == 'Pending':
+        try:
+            import cloud_sync
+            cfg = cloud_sync.get_sync_config()
+            if cfg.get("enabled") and cfg.get("db_url") and cfg.get("auth_token"):
+                ok, res = cloud_sync.execute_remote_turso_queries([{
+                    "sql": "SELECT id, status, approved_by, approved_discount, admin_remarks, actioned_at FROM discount_requests WHERE id = ?;",
+                    "args": [int(request_id)]
+                }], cfg['db_url'], cfg['auth_token'])
+                if ok and res.get('results'):
+                    cloud_rows = res['results'][0]['response']['result']['rows']
+                    if cloud_rows:
+                        vals = [c.get('value') for c in cloud_rows[0]]
+                        c_status = vals[1]
+                        if c_status and c_status != 'Pending':
+                            conn.execute("""
+                                UPDATE discount_requests 
+                                SET status = ?, approved_by = ?, approved_discount = ?, admin_remarks = ?, actioned_at = ?
+                                WHERE id = ?
+                            """, (c_status, vals[2], vals[3] or 0.0, vals[4] or '', vals[5], int(request_id)))
+                            conn.commit()
+                            row = conn.execute("SELECT * FROM discount_requests WHERE id = ?", (request_id,)).fetchone()
+        except Exception:
+            pass
+
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -1928,6 +1972,19 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
             except Exception:
                 pass
 
+        # Instant synchronous cloud sync for the discount approval
+        try:
+            import cloud_sync
+            cloud_sync.sync_discount_action_direct(
+                req_id=req.request_id,
+                action='Approved',
+                approver_user=approver_user,
+                approved_discount=req.approved_discount,
+                admin_remarks=req.admin_remarks or ''
+            )
+        except Exception:
+            pass
+
         try:
             import cloud_sync
             cloud_sync.queue_transaction_locally('discount_request', f"{req_row['admission_no']}_{req.request_id}", 'UPDATE', {
@@ -1951,6 +2008,19 @@ def action_discount(req: DiscountActionRequest, approver_user: str = Query("admi
         adm_no = req_row['admission_no']
         if adm_no or student_id:
             cursor.execute("UPDATE students SET discount_status = 'Rejected' WHERE admission_no = ? OR id = ?", (adm_no, student_id))
+
+        # Instant synchronous cloud sync for the discount rejection
+        try:
+            import cloud_sync
+            cloud_sync.sync_discount_action_direct(
+                req_id=req.request_id,
+                action='Rejected',
+                approver_user=approver_user,
+                approved_discount=0.0,
+                admin_remarks=req.admin_remarks or ''
+            )
+        except Exception:
+            pass
 
         try:
             import cloud_sync
