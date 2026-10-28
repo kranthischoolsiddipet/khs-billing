@@ -810,7 +810,21 @@ async function selectStudent(studentId, isBackgroundPoll = false) {
           const prop = h.proposed_data || {};
           const curr = h.current_data || {};
 
-          if (h.request_type === 'REVISE_FEE') {
+          if (h.request_type === 'DISCOUNT_CONCESSION') {
+            typeBadge = `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-tags mr-1"></i>Discount Concession</span>`;
+            const reqDisc = Number(prop.requested_discount || 0);
+            const appDisc = Number(prop.approved_discount || reqDisc);
+            const stdFee = Number(prop.standard_fee || 0);
+            const agreedFee = Number(prop.new_agreed_fee || (stdFee - appDisc));
+            changeDetails = `
+              <div class="font-bold text-slate-800">
+                Discount: <span class="text-rose-600 font-extrabold">-₹ ${appDisc.toLocaleString('en-IN')}</span>
+              </div>
+              <div class="text-[10px] text-slate-500">
+                Standard: ₹ ${stdFee.toLocaleString('en-IN')} <i class="fa-solid fa-arrow-right text-[9px] mx-0.5"></i> Agreed: <span class="font-bold text-emerald-700">₹ ${agreedFee.toLocaleString('en-IN')}</span>
+              </div>
+            `;
+          } else if (h.request_type === 'REVISE_FEE') {
             typeBadge = `<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full"><i class="fa-solid fa-file-invoice-dollar mr-1"></i>Fee Revision</span>`;
             const oldFee = Number(prop.previous_agreed_fee || curr.final_agreed_fee || 0);
             const newFee = Number(prop.new_agreed_fee || 0);
@@ -1400,6 +1414,218 @@ async function updateApprovalsBadge() {
     console.error("Error updating approvals badge:", err);
   }
 }
+
+// ================= APPROVALS SUB-TABS (QUEUE vs DISCOUNTS HISTORY) =================
+
+let currentApprovalsSubTab = 'queue';
+
+function switchApprovalsSubTab(tab) {
+  currentApprovalsSubTab = tab;
+  const btnQueue = document.getElementById('subtab-approvals-queue');
+  const btnHistory = document.getElementById('subtab-approvals-history');
+  const viewQueue = document.getElementById('approvalsQueueView');
+  const viewHistory = document.getElementById('approvalsHistoryView');
+
+  if (tab === 'history') {
+    if (btnQueue) {
+      btnQueue.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900';
+    }
+    if (btnHistory) {
+      btnHistory.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-white text-indigo-700 shadow-xs';
+    }
+    if (viewQueue) viewQueue.classList.add('hidden');
+    if (viewHistory) viewHistory.classList.remove('hidden');
+    loadApprovalsHistory();
+  } else {
+    if (btnQueue) {
+      btnQueue.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-white text-indigo-700 shadow-xs';
+    }
+    if (btnHistory) {
+      btnHistory.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900';
+    }
+    if (viewQueue) viewQueue.classList.remove('hidden');
+    if (viewHistory) viewHistory.classList.add('hidden');
+    loadPendingDiscounts();
+    loadPendingAdmissionChanges();
+  }
+}
+
+function refreshCurrentApprovalsTab() {
+  if (currentApprovalsSubTab === 'history') {
+    loadApprovalsHistory();
+  } else {
+    loadPendingDiscounts();
+    loadPendingAdmissionChanges();
+  }
+}
+
+async function loadApprovalsHistory() {
+  try {
+    const typeInput = document.getElementById('approvalsHistTypeFilter');
+    const dateInput = document.getElementById('approvalsHistDateFilter');
+    const statusInput = document.getElementById('approvalsHistStatusFilter');
+
+    const typeVal = typeInput ? typeInput.value.trim() : 'ALL';
+    const dateVal = dateInput ? dateInput.value.trim() : '';
+    const statusVal = statusInput ? statusInput.value.trim() : 'All';
+
+    let url = `/api/admin/approvals/history?type=${encodeURIComponent(typeVal)}&status=${encodeURIComponent(statusVal)}`;
+    if (dateVal) {
+      url += `&date=${encodeURIComponent(dateVal)}`;
+    }
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error('Failed to load approvals history');
+      return;
+    }
+    const historyList = await res.json();
+
+    const emptyMsg = document.getElementById('noApprovalsHistoryMsg');
+    const table = document.getElementById('approvalsHistoryTable');
+    const rows = document.getElementById('approvalsHistoryRows');
+    const chipTotalRecords = document.getElementById('histTotalRecordsChip');
+    const chipApprovedCount = document.getElementById('histApprovedCountChip');
+    const chipTotalAmt = document.getElementById('histTotalDiscountAmtChip');
+
+    let totalRecords = historyList.length;
+    let approvedCount = 0;
+    let totalDiscountSum = 0;
+
+    historyList.forEach(item => {
+      if (item.status === 'Approved') {
+        approvedCount++;
+        if (item.category === 'DISCOUNT' && item.details) {
+          totalDiscountSum += Number(item.details.approved_amount || item.details.requested_amount || 0);
+        } else if (item.category === 'REVISE_FEE' && item.details && item.details.proposed) {
+          const prevFee = Number(item.details.proposed.previous_agreed_fee || 0);
+          const newFee = Number(item.details.proposed.new_agreed_fee || 0);
+          if (newFee < prevFee) {
+            totalDiscountSum += (prevFee - newFee);
+          }
+        }
+      }
+    });
+
+    if (chipTotalRecords) chipTotalRecords.innerText = `Records: ${totalRecords}`;
+    if (chipApprovedCount) chipApprovedCount.innerText = `Approved: ${approvedCount}`;
+    if (chipTotalAmt) chipTotalAmt.innerText = `Concessions: ₹ ${totalDiscountSum.toLocaleString('en-IN')}`;
+
+    if (!historyList || historyList.length === 0) {
+      if (table) table.classList.add('hidden');
+      if (emptyMsg) emptyMsg.classList.remove('hidden');
+      if (rows) rows.innerHTML = '';
+      return;
+    }
+
+    if (table) table.classList.remove('hidden');
+    if (emptyMsg) emptyMsg.classList.add('hidden');
+
+    if (rows) {
+      rows.innerHTML = historyList.map(item => {
+        // Status Badge
+        let statusBadge = '';
+        if (item.status === 'Approved') {
+          statusBadge = `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-300"><i class="fa-solid fa-check mr-1"></i>Approved</span>`;
+        } else if (item.status === 'Rejected') {
+          statusBadge = `<span class="bg-rose-100 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-rose-300"><i class="fa-solid fa-xmark mr-1"></i>Rejected</span>`;
+        } else {
+          statusBadge = `<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-300 animate-pulse"><i class="fa-solid fa-clock mr-1"></i>Pending</span>`;
+        }
+
+        // Category Badge
+        let catBadge = '';
+        let detailsHtml = '';
+        const dt = item.details || {};
+
+        if (item.category === 'DISCOUNT') {
+          catBadge = `<span class="bg-emerald-50 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-200"><i class="fa-solid fa-tags mr-1 text-emerald-600"></i>Discount</span>`;
+          const stdF = Number(dt.standard_fee || 0);
+          const reqD = Number(dt.requested_amount || 0);
+          const appD = Number(dt.approved_amount || reqD);
+          const agreedF = Number(dt.final_agreed_fee || (stdF - appD));
+          detailsHtml = `
+            <div class="font-bold text-slate-800">
+              Concession: <span class="text-rose-600 font-black">-₹ ${appD.toLocaleString('en-IN')}</span>
+            </div>
+            <div class="text-[10px] text-slate-500">
+              Std ₹ ${stdF.toLocaleString('en-IN')} <i class="fa-solid fa-arrow-right text-[9px] mx-0.5 text-slate-400"></i> Agreed: <span class="font-bold text-emerald-700">₹ ${agreedF.toLocaleString('en-IN')}</span>
+            </div>
+          `;
+        } else if (item.category === 'REVISE_FEE') {
+          catBadge = `<span class="bg-amber-50 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-200"><i class="fa-solid fa-file-invoice-dollar mr-1 text-amber-600"></i>Fee Revision</span>`;
+          const prop = dt.proposed || {};
+          const prevF = Number(prop.previous_agreed_fee || 0);
+          const newF = Number(prop.new_agreed_fee || 0);
+          const diff = newF - prevF;
+          detailsHtml = `
+            <div class="font-bold text-slate-800">
+              ₹ ${prevF.toLocaleString('en-IN')} <i class="fa-solid fa-arrow-right text-[9px] mx-0.5 text-slate-400"></i> <span class="text-indigo-700 font-black">₹ ${newF.toLocaleString('en-IN')}</span>
+            </div>
+            <div class="text-[10px] font-bold ${diff < 0 ? 'text-emerald-600' : 'text-slate-500'}">
+              ${diff < 0 ? 'Concession: -₹ ' + Math.abs(diff).toLocaleString('en-IN') : (diff > 0 ? '+₹ ' + diff.toLocaleString('en-IN') : 'No net change')}
+            </div>
+          `;
+        } else if (item.category === 'CANCEL_ADMISSION') {
+          catBadge = `<span class="bg-rose-50 text-rose-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-rose-200"><i class="fa-solid fa-ban mr-1 text-rose-600"></i>Cancellation</span>`;
+          detailsHtml = `<span class="text-rose-700 font-bold text-[11px]">Admission Cancellation / Withdrawal</span>`;
+        } else {
+          catBadge = `<span class="bg-indigo-50 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-indigo-200"><i class="fa-solid fa-user-pen mr-1 text-indigo-600"></i>Details Edit</span>`;
+          const prop = dt.proposed || {};
+          const changesSummary = Object.keys(prop).map(k => `${k}: ${prop[k]}`).join(', ');
+          detailsHtml = `<span class="text-slate-700 font-medium text-[11px]">${changesSummary || 'Student info updated'}</span>`;
+        }
+
+        const dateStr = (item.actioned_at || item.created_at || '--');
+        const dayDate = dateStr.split(' ')[0];
+        const dayTime = dateStr.split(' ')[1] ? dateStr.split(' ')[1].substring(0, 5) : '';
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+              <span class="font-bold text-slate-800">${item.id}</span>
+              <div class="text-[10px] text-slate-400">${dayDate} ${dayTime}</div>
+            </td>
+            <td class="p-3 whitespace-nowrap">${catBadge}</td>
+            <td class="p-3">
+              <p class="font-bold text-slate-900">${item.student_name}</p>
+              <p class="text-[11px] text-indigo-700 font-mono font-semibold">${item.admission_no} <span class="text-slate-400">(${item.class_name})</span></p>
+            </td>
+            <td class="p-3">${detailsHtml}</td>
+            <td class="p-3 text-[11px]">
+              <div class="font-bold text-slate-800">${item.requested_by || '--'}</div>
+              <div class="italic text-slate-500">"${item.reason || 'None specified'}"</div>
+            </td>
+            <td class="p-3 whitespace-nowrap">${statusBadge}</td>
+            <td class="p-3 text-[11px]">
+              <div class="font-bold text-slate-800">${item.reviewed_by || '--'}</div>
+              ${item.admin_remarks ? `<div class="italic text-slate-500">"${item.admin_remarks}"</div>` : ''}
+              ${item.actioned_at ? `<div class="text-[9px] text-slate-400 mt-0.5">${item.actioned_at}</div>` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+  } catch (err) {
+    console.error('Error loading approvals history:', err);
+  }
+}
+
+// Backwards compatibility alias
+const loadDiscountsHistory = loadApprovalsHistory;
+
+function resetApprovalsHistoryFilters() {
+  const typeInput = document.getElementById('approvalsHistTypeFilter');
+  const dateInput = document.getElementById('approvalsHistDateFilter');
+  const statusInput = document.getElementById('approvalsHistStatusFilter');
+  if (typeInput) typeInput.value = 'ALL';
+  if (dateInput) dateInput.value = '';
+  if (statusInput) statusInput.value = 'All';
+  loadApprovalsHistory();
+}
+
+const resetDiscountHistoryFilters = resetApprovalsHistoryFilters;
 
 async function loadPendingDiscounts() {
   try {

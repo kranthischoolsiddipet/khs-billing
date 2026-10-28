@@ -1939,6 +1939,139 @@ def get_pending_discounts():
     conn.close()
     return results
 
+@app.get("/api/admin/approvals/history")
+def get_admin_approvals_history(type: str = Query(None), status: str = Query(None), date: str = Query(None)):
+    """
+    Returns unified audit trail log of ALL administrative approvals:
+    - Admission Discounts (DISCOUNT)
+    - Fee Revisions (REVISE_FEE)
+    - Admission Details Edits (MODIFY_DETAILS / EDIT_DETAILS)
+    - Admission Cancellations (CANCEL_ADMISSION)
+    Filters:
+    - type: 'ALL', 'DISCOUNT', 'REVISE_FEE', 'MODIFY_DETAILS', 'CANCEL_ADMISSION'
+    - status: 'All', 'Approved', 'Rejected', 'Pending'
+    - date: YYYY-MM-DD (matches requested or approved/actioned date)
+    """
+    conn = get_db()
+    results = []
+
+    type_filter = (type or 'ALL').strip().upper()
+    status_filter = (status or 'All').strip()
+    date_filter = (date or '').strip()
+
+    # 1. Fetch from discount_requests if type is ALL or DISCOUNT
+    if type_filter in ['ALL', 'DISCOUNT']:
+        d_query = "SELECT * FROM discount_requests WHERE 1=1"
+        d_params = []
+        if status_filter.lower() != 'all':
+            d_query += " AND status = ?"
+            d_params.append(status_filter)
+        if date_filter:
+            d_query += " AND (created_at LIKE ? OR actioned_at LIKE ?)"
+            d_params.append(f"{date_filter}%")
+            d_params.append(f"{date_filter}%")
+        d_query += " ORDER BY id DESC LIMIT 500"
+
+        d_rows = conn.execute(d_query, d_params).fetchall()
+        for r in d_rows:
+            d = dict_from_row(r)
+            std_f = float(d.get('standard_fee') or 0.0)
+            req_d = float(d.get('requested_discount') or 0.0)
+            app_d = float(d.get('approved_discount') or (req_d if d.get('status') == 'Approved' else 0.0))
+            new_agreed = max(0.0, std_f - (app_d if d.get('status') == 'Approved' else 0.0))
+
+            results.append({
+                "id": f"DISC-{d['id']}",
+                "category": "DISCOUNT",
+                "category_label": "Admission Concession",
+                "student_id": d.get('student_id'),
+                "admission_no": d.get('admission_no') or '--',
+                "student_name": d.get('student_name') or '--',
+                "class_name": d.get('class_name') or '--',
+                "reason": d.get('reason') or 'Admission concession requested',
+                "requested_by": resolve_user_display_name(conn, d.get('requested_by')),
+                "status": d.get('status', 'Pending'),
+                "admin_remarks": d.get('admin_remarks') or '',
+                "reviewed_by": resolve_user_display_name(conn, d.get('approved_by')),
+                "created_at": d.get('created_at'),
+                "actioned_at": d.get('actioned_at'),
+                "details": {
+                    "standard_fee": std_f,
+                    "requested_amount": req_d,
+                    "approved_amount": app_d,
+                    "final_agreed_fee": new_agreed
+                }
+            })
+
+    # 2. Fetch from admission_change_requests if type is ALL or matches specific change type
+    if type_filter in ['ALL', 'REVISE_FEE', 'MODIFY_DETAILS', 'CANCEL_ADMISSION']:
+        c_query = "SELECT * FROM admission_change_requests WHERE 1=1"
+        c_params = []
+        if type_filter != 'ALL':
+            c_query += " AND request_type = ?"
+            c_params.append(type_filter)
+        if status_filter.lower() != 'all':
+            c_query += " AND status = ?"
+            c_params.append(status_filter)
+        if date_filter:
+            c_query += " AND (created_at LIKE ? OR reviewed_at LIKE ?)"
+            c_params.append(f"{date_filter}%")
+            c_params.append(f"{date_filter}%")
+        c_query += " ORDER BY id DESC LIMIT 500"
+
+        c_rows = conn.execute(c_query, c_params).fetchall()
+        for r in c_rows:
+            c = dict_from_row(r)
+            req_type = c.get('request_type', '')
+
+            # Fetch student name if not present
+            st_name = '--'
+            st_class = '--'
+            st_row = conn.execute("SELECT student_name, class_name, section FROM students WHERE admission_no = ? OR id = ?", (c.get('admission_no'), c.get('student_id'))).fetchone()
+            if st_row:
+                st_name = st_row['student_name']
+                st_class = f"{st_row['class_name']}-{st_row['section']}" if st_row['class_name'] else '--'
+
+            cat_label = "Fee Revision"
+            if req_type == 'CANCEL_ADMISSION':
+                cat_label = "Admission Cancellation"
+            elif req_type in ['MODIFY_DETAILS', 'EDIT_DETAILS']:
+                cat_label = "Details Modification"
+
+            curr_d = json.loads(c.get('current_data') or '{}') if c.get('current_data') else {}
+            prop_d = json.loads(c.get('proposed_data') or '{}') if c.get('proposed_data') else {}
+
+            results.append({
+                "id": f"CHG-{c['id']}",
+                "category": req_type,
+                "category_label": cat_label,
+                "student_id": c.get('student_id'),
+                "admission_no": c.get('admission_no') or '--',
+                "student_name": st_name,
+                "class_name": st_class,
+                "reason": c.get('reason') or '',
+                "requested_by": resolve_user_display_name(conn, c.get('requested_by')),
+                "status": c.get('status', 'Pending'),
+                "admin_remarks": c.get('admin_remarks') or '',
+                "reviewed_by": resolve_user_display_name(conn, c.get('reviewed_by')),
+                "created_at": c.get('created_at'),
+                "actioned_at": c.get('reviewed_at'),
+                "details": {
+                    "current": curr_d,
+                    "proposed": prop_d
+                }
+            })
+
+    # Sort all merged approvals by date descending (actioned_at or created_at)
+    results.sort(key=lambda x: str(x.get('actioned_at') or x.get('created_at') or ''), reverse=True)
+    conn.close()
+    return results
+
+@app.get("/api/discounts/history")
+def get_discounts_history(status: str = Query(None), date: str = Query(None)):
+    """Backwards compatible alias for discounts"""
+    return get_admin_approvals_history(type='DISCOUNT', status=status, date=date)
+
 @app.post("/api/discounts/action")
 def action_discount(req: DiscountActionRequest, approver_user: str = Query("admin")):
     conn = get_db()
@@ -2637,6 +2770,13 @@ def get_student_statement(student_id: int):
         ORDER BY id DESC
     """, (adm_no, student_id)).fetchall()
 
+    # Retrieve all discount requests (both pre-admission and post-admission) for this student
+    discount_rows = conn.execute("""
+        SELECT * FROM discount_requests 
+        WHERE admission_no = ? OR student_id = ? 
+        ORDER BY id DESC
+    """, (adm_no, student_id)).fetchall()
+
     pending_change_dict = dict_from_row(pending_change)
     if pending_change_dict:
         pending_change_dict['proposed_data'] = json.loads(pending_change_dict['proposed_data'] or '{}')
@@ -2648,7 +2788,43 @@ def get_student_statement(student_id: int):
         hd['current_data'] = json.loads(hd['current_data'] or '{}') if hd.get('current_data') else {}
         hd['proposed_data'] = json.loads(hd['proposed_data'] or '{}') if hd.get('proposed_data') else {}
         hd['requested_by'] = resolve_user_display_name(conn, hd.get('requested_by'))
+        hd['reviewed_by'] = resolve_user_display_name(conn, hd.get('reviewed_by'))
         parsed_history.append(hd)
+
+    # Convert discount requests into history format so they display directly in the student's Governance History table
+    for dr in discount_rows:
+        dd = dict_from_row(dr)
+        req_disc = float(dd.get('requested_discount') or 0.0)
+        app_disc = float(dd.get('approved_discount') or 0.0)
+        std_f = float(dd.get('standard_fee') or student['standard_fee'] or 0.0)
+        final_f = max(0.0, std_f - (app_disc if dd.get('status') == 'Approved' else req_disc))
+        
+        parsed_history.append({
+            "id": f"disc_{dd['id']}",
+            "student_id": student_id,
+            "admission_no": adm_no,
+            "request_type": "DISCOUNT_CONCESSION",
+            "current_data": {
+                "standard_fee": std_f,
+                "discount_amount": 0.0
+            },
+            "proposed_data": {
+                "requested_discount": req_disc,
+                "approved_discount": app_disc,
+                "standard_fee": std_f,
+                "new_agreed_fee": final_f
+            },
+            "reason": dd.get('reason') or f"Admission Fee Concession: ₹ {req_disc:,.0f}",
+            "requested_by": resolve_user_display_name(conn, dd.get('requested_by')),
+            "status": dd.get('status', 'Pending'),
+            "admin_remarks": dd.get('admin_remarks') or ('Approved by Management' if dd.get('status') == 'Approved' else ''),
+            "reviewed_by": resolve_user_display_name(conn, dd.get('approved_by')),
+            "created_at": dd.get('created_at'),
+            "reviewed_at": dd.get('actioned_at')
+        })
+
+    # Sort combined history by date descending
+    parsed_history.sort(key=lambda x: str(x.get('reviewed_at') or x.get('created_at') or ''), reverse=True)
 
     conn.close()
     total_paid = sum(p['amount_paid'] for p in payments)

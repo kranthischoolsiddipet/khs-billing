@@ -683,16 +683,31 @@
     <!-- ================= SECTION 3: DISCOUNT APPROVALS ================= -->
     <section id="sec-discounts" class="hidden space-y-6">
       <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs max-w-5xl mx-auto">
-        <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+        <!-- Approvals Sub-Tabs Header -->
+        <div class="flex flex-wrap items-center justify-between border-b border-slate-200 pb-4 mb-4 gap-3">
           <div>
-            <h2 class="text-base font-extrabold text-slate-900">Admin Approvals Desk</h2>
-            <p class="text-xs text-slate-500">Review and approve fee discounts, admission detail changes, and admission cancellations</p>
+            <h2 class="text-base font-extrabold text-slate-900">Admin Approvals & Discounts Desk</h2>
+            <p class="text-xs text-slate-500">Review pending requests or inspect day-wise history of requested & approved discounts</p>
           </div>
-          <button onclick="loadPendingDiscounts(); loadPendingAdmissionChanges();" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5">
-            <i class="fa-solid fa-arrows-rotate"></i>
-            <span>Refresh Queue</span>
-          </button>
+          <div class="flex items-center space-x-2">
+            <!-- Sub-tab toggle buttons -->
+            <div class="inline-flex p-1 bg-slate-100 rounded-xl space-x-1">
+              <button type="button" id="subtab-approvals-queue" onclick="switchApprovalsSubTab('queue')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-white text-indigo-700 shadow-xs">
+                <i class="fa-solid fa-clock mr-1"></i> Pending Queue
+              </button>
+              <button type="button" id="subtab-approvals-history" onclick="switchApprovalsSubTab('history')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900">
+                <i class="fa-solid fa-clock-rotate-left mr-1"></i> Approvals Audit History
+              </button>
+            </div>
+            <button onclick="refreshCurrentApprovalsTab()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl transition flex items-center space-x-1.5">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
+
+        <!-- VIEW 1: PENDING APPROVALS QUEUE -->
+        <div id="approvalsQueueView" class="space-y-6">
 
         <div id="noDiscountsMsg" class="py-12 text-center text-slate-400">
           <i class="fa-solid fa-tags text-4xl mb-2 text-slate-300"></i>
@@ -784,6 +799,78 @@
                 </tr>
               </thead>
               <tbody id="importBatchesRows" class="divide-y divide-slate-100 text-slate-800">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        </div>
+        <!-- END OF VIEW 1 (approvalsQueueView) -->
+
+        <!-- VIEW 2: UNIFIED APPROVALS AUDIT TRAIL & HISTORY -->
+        <div id="approvalsHistoryView" class="hidden space-y-4">
+          <!-- Filters Bar -->
+          <div class="flex flex-wrap items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-slate-200 gap-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Approval Category</label>
+                <select id="approvalsHistTypeFilter" onchange="loadApprovalsHistory()" class="px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500">
+                  <option value="ALL" selected>All Categories (Everything)</option>
+                  <option value="DISCOUNT">Discounts / Concessions</option>
+                  <option value="REVISE_FEE">Fee Revisions</option>
+                  <option value="MODIFY_DETAILS">Student Details Edits</option>
+                  <option value="CANCEL_ADMISSION">Admission Cancellations</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Filter by Date</label>
+                <input type="date" id="approvalsHistDateFilter" onchange="loadApprovalsHistory()" class="px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500">
+              </div>
+              <div>
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Status</label>
+                <select id="approvalsHistStatusFilter" onchange="loadApprovalsHistory()" class="px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500">
+                  <option value="All" selected>All (Approved, Pending, Rejected)</option>
+                  <option value="Approved">Approved Only</option>
+                  <option value="Pending">Pending Only</option>
+                  <option value="Rejected">Rejected Only</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button type="button" onclick="resetApprovalsHistoryFilters()" class="text-xs text-indigo-600 hover:text-indigo-800 font-bold px-2 py-1.5">
+                  <i class="fa-solid fa-xmark mr-1"></i> Clear Filters
+                </button>
+              </div>
+            </div>
+
+            <!-- Summary Chips -->
+            <div class="flex items-center space-x-2 text-xs font-bold">
+              <span class="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200" id="histTotalRecordsChip">Records: 0</span>
+              <span class="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200" id="histApprovedCountChip">Approved: 0</span>
+              <span class="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-800 border border-rose-200" id="histTotalDiscountAmtChip">Total Concessions: ₹ 0</span>
+            </div>
+          </div>
+
+          <!-- History Table -->
+          <div id="noApprovalsHistoryMsg" class="hidden py-12 text-center text-slate-400">
+            <i class="fa-solid fa-inbox text-3xl mb-2 text-slate-300"></i>
+            <p class="text-xs font-semibold">No approval records found matching the selected filters.</p>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-xs" id="approvalsHistoryTable">
+              <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Req ID & Date</th>
+                  <th class="p-3">Category</th>
+                  <th class="p-3">Student & Admission #</th>
+                  <th class="p-3">Details / Proposed Change</th>
+                  <th class="p-3">Requested By & Reason</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Reviewed By & Admin Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="approvalsHistoryRows" class="divide-y divide-slate-100 text-slate-800">
                 <!-- Populated dynamically -->
               </tbody>
             </table>
