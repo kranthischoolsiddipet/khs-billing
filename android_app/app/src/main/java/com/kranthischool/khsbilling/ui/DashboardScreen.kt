@@ -302,7 +302,7 @@ fun StudentCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = student.name,
+                    text = student.getDisplayName(),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -312,9 +312,10 @@ fun StudentCard(
                     fontSize = 13.sp,
                     color = Color.Gray
                 )
-                if (!student.phone.isNullOrBlank()) {
+                val phoneNum = student.getEffectivePhone()
+                if (!phoneNum.isNullOrBlank()) {
                     Text(
-                        text = "Ph: ${student.phone}",
+                        text = "Ph: $phoneNum",
                         fontSize = 12.sp,
                         color = Color.Gray
                     )

@@ -4330,6 +4330,7 @@ def receipt_page(token: str):
     with open(os.path.join(STATIC_DIR, "receipt.html"), "r", encoding="utf-8") as f:
         return f.read()
 
+@app.api_route("/apk", methods=["GET", "HEAD"])
 @app.api_route("/download-app", methods=["GET", "HEAD"])
 @app.api_route("/khs-billing-v1.3.0.apk", methods=["GET", "HEAD"])
 def download_android_apk():

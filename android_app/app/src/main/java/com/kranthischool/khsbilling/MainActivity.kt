@@ -92,43 +92,49 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun promptDeviceUnlock() {
-        val executor = ContextCompat.getMainExecutor(this)
-        val biometricPrompt = BiometricPrompt(
-            this,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    isAppLocked.value = false
-                }
+        try {
+            val biometricManager = BiometricManager.from(this)
+            val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            } else {
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            }
 
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    // If user cancelled, app stays locked with prompt button
-                    if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                        Toast.makeText(this@MainActivity, "$errString", Toast.LENGTH_SHORT).show()
+            val canAuthenticate = biometricManager.canAuthenticate(authenticators)
+            if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
+                // Device does not support biometric or has no PIN/Pattern set up
+                isAppLocked.value = false
+                return
+            }
+
+            val executor = ContextCompat.getMainExecutor(this)
+            val biometricPrompt = BiometricPrompt(
+                this,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        isAppLocked.value = false
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                            Toast.makeText(this@MainActivity, "$errString", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
-            }
-        )
+            )
 
-        // Support both Biometric (Fingerprint/Face) and Phone's Screen Lock PIN / Pattern
-        val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        }
+            val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Kranthi High School")
+                .setSubtitle("Confirm your Phone PIN, Pattern or Fingerprint to unlock")
+                .setAllowedAuthenticators(authenticators)
+                .build()
 
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Kranthi High School")
-            .setSubtitle("Confirm your Phone PIN, Pattern or Fingerprint to unlock")
-            .setAllowedAuthenticators(authenticators)
-            .build()
-
-        try {
             biometricPrompt.authenticate(promptInfo)
         } catch (e: Exception) {
-            // Fallback if device has no secure lock set up
+            // Safe fallback if biometric/keyguard throws any runtime exception
             isAppLocked.value = false
         }
     }

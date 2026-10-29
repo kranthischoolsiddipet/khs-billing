@@ -166,7 +166,7 @@ fun StudentLedgerScreen(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = s.name,
+                                text = s.getDisplayName(),
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -343,7 +343,7 @@ fun StudentLedgerScreen(
             title = { Text("Collect Payment") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Student: ${statement!!.student.name}")
+                    Text("Student: ${statement!!.student.getDisplayName()}")
                     OutlinedTextField(
                         value = paymentAmount,
                         onValueChange = { paymentAmount = it },
@@ -458,7 +458,7 @@ fun StudentLedgerScreen(
                                                     deviceAddress = device.address,
                                                     receiptNo = lastReceiptToPrint!!.receipt_no ?: "REC-${lastReceiptToPrint!!.id}",
                                                     date = lastReceiptToPrint!!.payment_date ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()),
-                                                    studentName = s.name,
+                                                    studentName = s.getDisplayName(),
                                                     studentClass = s.getEffectiveClass(),
                                                     studentId = s.admission_no ?: s.student_id ?: s.id.toString(),
                                                     amountPaid = lastReceiptToPrint!!.amount,

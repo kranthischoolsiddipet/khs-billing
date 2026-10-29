@@ -37,20 +37,26 @@ data class Student(
     val id: Int,
     val student_id: String? = null,
     val admission_no: String? = null,
-    val name: String,
+    @SerializedName("student_name") val raw_name: String? = null,
+    val name: String? = null,
     val class_name: String? = null,
     @SerializedName("class") val standard: String? = null,
     val section: String? = null,
+    val student_type: String? = null,
     val admission_type: String? = null,
+    @SerializedName("parent_name") val parent_name: String? = null,
     val father_name: String? = null,
     val mother_name: String? = null,
+    @SerializedName("parent_phone") val parent_phone: String? = null,
     val phone: String? = null,
-    val total_fee: Double = 0.0,
-    val paid_fee: Double = 0.0,
-    val balance: Double = 0.0,
-    val discount: Double = 0.0,
+    @SerializedName("standard_fee") val total_fee: Double = 0.0,
+    @SerializedName("total_paid") val paid_fee: Double = 0.0,
+    @SerializedName("balance_due") val balance: Double = 0.0,
+    @SerializedName("discount_amount") val discount: Double = 0.0,
     val status: String? = null
 ) {
+    fun getDisplayName(): String = raw_name ?: name ?: "Unnamed Student"
+    fun getEffectivePhone(): String? = parent_phone ?: phone
     fun getEffectiveClass(): String = class_name ?: standard ?: "N/A"
 }
 
