@@ -192,3 +192,51 @@ data class NotificationFeedResponse(
     val count: Int = 0,
     val notifications: List<NotificationItem> = emptyList()
 )
+
+data class EodReportResponse(
+    val target_date: String? = null,
+    val branch: String? = null,
+    val total_receipts: Int = 0,
+    val total_amount: Double = 0.0,
+    val cash_total: Double = 0.0,
+    val upi_total: Double = 0.0,
+    val bank_total: Double = 0.0,
+    val total_students: Int = 0,
+    val overall_pending: Double = 0.0,
+    val summary_msg: String? = null,
+    val transactions: List<EodTransaction> = emptyList()
+)
+
+data class EodTransaction(
+    val id: Int? = null,
+    val receipt_no: String? = null,
+    val student_name: String? = null,
+    val class_name: String? = null,
+    val section: String? = null,
+    val amount_paid: Double = 0.0,
+    val payment_mode: String? = null,
+    val payment_date: String? = null,
+    val collected_by: String? = null
+)
+
+data class StaffListResponse(
+    val status: String? = null,
+    val count: Int = 0,
+    val staff: List<StaffMember> = emptyList()
+)
+
+data class StaffMember(
+    val id: Int,
+    val username: String,
+    val full_name: String? = null,
+    val role: String? = null,
+    val phone: String? = null,
+    val is_active: Int = 1,
+    val can_promote: Int = 0,
+    val role_name: String? = null,
+    val is_online: Boolean = false,
+    val last_ip: String? = null,
+    val last_device: String? = null,
+    val last_seen: String? = null,
+    val last_action: String? = null
+)

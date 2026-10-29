@@ -11,19 +11,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -39,6 +33,9 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(
     onSelectStudent: (Int) -> Unit,
     onNavigateApprovals: () -> Unit,
+    onNavigateEnrolledStudents: () -> Unit,
+    onNavigateEodReports: () -> Unit,
+    onNavigateStaffList: () -> Unit,
     onLogout: () -> Unit
 ) {
     val context = LocalContext.current
@@ -113,7 +110,6 @@ fun DashboardScreen(
         doSearch("")
         if (isAdmin) {
             fetchNotifications()
-            // Auto-refresh notifications every 20 seconds for Admin
             while (true) {
                 delay(20_000)
                 fetchNotifications()
@@ -174,7 +170,6 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            // Front Desk only: New Admission action
             if (!isAdmin) {
                 ExtendedFloatingActionButton(
                     onClick = {
@@ -199,46 +194,78 @@ fun DashboardScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            // Admin Action Ribbon: Approvals Desk
+            // ADMIN MENU DASHBOARD (5 Clear Options)
             if (isAdmin) {
-                Card(
+                Text(
+                    text = "Administrator Controls",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 10.dp)
+                )
+
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(12.dp)
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                "Approvals Desk",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                "Review fee concessions & admission updates",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                        }
-                        Button(
-                            onClick = onNavigateApprovals,
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) {
-                            Text("Open", fontSize = 13.sp)
-                        }
-                    }
+                    AdminMenuCard(
+                        title = "Enrolled Students",
+                        subtitle = "View all records",
+                        icon = Icons.Default.Groups,
+                        color = Color(0xFF2563EB),
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateEnrolledStudents
+                    )
+                    AdminMenuCard(
+                        title = "Approvals",
+                        subtitle = "Concessions & Changes",
+                        icon = Icons.Default.FactCheck,
+                        color = Color(0xFFD97706),
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateApprovals
+                    )
                 }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AdminMenuCard(
+                        title = "EOD Reports",
+                        subtitle = "Daily Collection",
+                        icon = Icons.Default.Assessment,
+                        color = Color(0xFF059669),
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateEodReports
+                    )
+                    AdminMenuCard(
+                        title = "Staff & Cashiers",
+                        subtitle = "Accounts & Activity",
+                        icon = Icons.Default.Badge,
+                        color = Color(0xFF7C3AED),
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateStaffList
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Fee Collection & Quick Search",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
 
-            // Search Bar
+            // Search Bar for Fee Collection (Used by both Admin & Front Desk)
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = {
@@ -247,7 +274,7 @@ fun DashboardScreen(
                         doSearch(it)
                     }
                 },
-                placeholder = { Text("Search by Name, Roll/Admission No...") },
+                placeholder = { Text("Search Student to Collect Fee...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -559,6 +586,46 @@ fun DashboardScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun AdminMenuCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(90.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(color.copy(alpha = 0.12f), shape = RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                Text(subtitle, fontSize = 11.sp, color = Color.Gray)
+            }
+        }
     }
 }
 

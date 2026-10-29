@@ -44,6 +44,15 @@ interface KhsApiService {
     @GET("/api/notifications/feed")
     suspend fun getNotificationsFeed(@Query("limit") limit: Int = 30): Response<NotificationFeedResponse>
 
+    @GET("/api/reports/eod")
+    suspend fun getEodReport(
+        @Query("target_date") targetDate: String? = null,
+        @Query("branch") branch: String? = "All"
+    ): Response<EodReportResponse>
+
+    @GET("/api/staff/list")
+    suspend fun getStaffList(): Response<StaffListResponse>
+
     @POST("/api/devices/register")
     suspend fun registerDeviceToken(
         @Query("token") token: String,

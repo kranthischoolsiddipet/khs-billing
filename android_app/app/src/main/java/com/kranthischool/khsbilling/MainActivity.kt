@@ -226,6 +226,15 @@ fun AppNavigation(
                 onNavigateApprovals = {
                     navController.navigate("admin_approvals")
                 },
+                onNavigateEnrolledStudents = {
+                    navController.navigate("enrolled_students")
+                },
+                onNavigateEodReports = {
+                    navController.navigate("eod_reports")
+                },
+                onNavigateStaffList = {
+                    navController.navigate("staff_list")
+                },
                 onLogout = {
                     onLogoutAction()
                     navController.navigate("login") {
@@ -250,6 +259,33 @@ fun AppNavigation(
 
         composable("admin_approvals") {
             AdminApprovalsScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("enrolled_students") {
+            com.kranthischool.khsbilling.ui.EnrolledStudentsScreen(
+                onSelectStudent = { studentId ->
+                    navController.navigate("student_ledger/$studentId")
+                },
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("eod_reports") {
+            com.kranthischool.khsbilling.ui.EodReportScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("staff_list") {
+            com.kranthischool.khsbilling.ui.StaffListScreen(
                 onNavigateBack = {
                     navController.popBackStack()
                 }
