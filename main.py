@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 
 # Ensure current directory is in sys.path
@@ -335,7 +335,7 @@ def parse_client_info(request: Request) -> tuple:
     elif "opera" in ua_lower or "opr/" in ua_lower:
         browser = "Opera"
     
-    device_browser = f"{device} • {browser}"
+    device_browser = f"{device} â€¢ {browser}"
     return client_ip, device_browser
 
 def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0, ip_address: str = "", device_browser: str = "", custom_timestamp: str = None):
@@ -2238,7 +2238,7 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
     # Real-time Push Notification alert to Admins
     notify_admins_of_pending_request(
         title="Fee Concession Requested",
-        body=f"₹ {req.requested_discount:,.0f} requested for {req.student_name} ({req.class_name}) by {operator_name}.",
+        body=f"â‚¹ {req.requested_discount:,.0f} requested for {req.student_name} ({req.class_name}) by {operator_name}.",
         data_payload={"type": "DISCOUNT", "request_id": str(req_id), "admission_no": req.admission_no}
     )
 
@@ -2877,7 +2877,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
 
     if new_fee < total_paid:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"Revised fee (₹ {new_fee:,.0f}) cannot be less than the amount already paid (₹ {total_paid:,.0f}).")
+        raise HTTPException(status_code=400, detail=f"Revised fee (â‚¹ {new_fee:,.0f}) cannot be less than the amount already paid (â‚¹ {total_paid:,.0f}).")
 
     old_agreed = float(student['final_agreed_fee'])
     std_fee = float(student['standard_fee']) if student['standard_fee'] else new_fee
@@ -2913,7 +2913,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
         role=op['role'],
         branch=student['branch'] or "Branch 1",
         action_type="FEE_REVISION",
-        action_details=f"Admin revised agreed fee from ₹ {old_agreed:,.0f} to ₹ {new_fee:,.0f} for {student['student_name']} ({student['admission_no']}). Reason: {req.reason.strip()}",
+        action_details=f"Admin revised agreed fee from â‚¹ {old_agreed:,.0f} to â‚¹ {new_fee:,.0f} for {student['student_name']} ({student['admission_no']}). Reason: {req.reason.strip()}",
         entity_id=student['admission_no'],
         amount=new_fee,
         ip_address=ip_addr,
@@ -2963,7 +2963,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
         "status": "success",
         "old_agreed_fee": old_agreed,
         "new_agreed_fee": new_fee,
-        "message": f"Successfully updated agreed fee to ₹ {new_fee:,.0f} for {student['student_name']}."
+        "message": f"Successfully updated agreed fee to â‚¹ {new_fee:,.0f} for {student['student_name']}."
     }
 
 # ----------------- PAYMENTS & INSTALLMENTS (T3) -----------------
@@ -2986,7 +2986,7 @@ def search_students(query: str = Query("")):
     return [dict_from_row(r) for r in rows]
 
 @app.get("/api/students/class-wise")
-def get_students_class_wise(class_name: Optional[str] = None, section: Optional[str] = None, status: Optional[str] = None, branch: Optional[str] = None):
+def get_students_class_wise(class_name: Optional[str] = None, section: Optional[str] = None, status: Optional[str] = None, branch: Optional[str] = None, admission_date: Optional[str] = None):
     conn = get_db()
 
     # Get class list summary (counts and financials per class)
@@ -3012,6 +3012,9 @@ def get_students_class_wise(class_name: Optional[str] = None, section: Optional[
     if branch and branch != 'All':
         sum_query += " AND s.branch = ?"
         sum_params.append(branch)
+    if admission_date:
+        sum_query += " AND date(s.admission_date) = date(?)"
+        sum_params.append(admission_date)
 
     sum_query += """
         GROUP BY s.class_name
@@ -3063,6 +3066,9 @@ def get_students_class_wise(class_name: Optional[str] = None, section: Optional[
     if status and status != 'All':
         query += " AND s.status = ?"
         params.append(status)
+    if admission_date:
+        query += " AND date(s.admission_date) = date(?)"
+        params.append(admission_date)
 
     query += """
         ORDER BY 
@@ -3179,7 +3185,7 @@ def get_student_statement(student_id: int):
                 "standard_fee": std_f,
                 "new_agreed_fee": final_f
             },
-            "reason": dd.get('reason') or f"Admission Fee Concession: ₹ {req_disc:,.0f}",
+            "reason": dd.get('reason') or f"Admission Fee Concession: â‚¹ {req_disc:,.0f}",
             "requested_by": resolve_user_display_name(conn, dd.get('requested_by')),
             "status": dd.get('status', 'Pending'),
             "admin_remarks": dd.get('admin_remarks') or ('Approved by Management' if dd.get('status') == 'Approved' else ''),
@@ -3224,11 +3230,11 @@ def collect_payment(req: PaymentCreateRequest, request: Request, cashier_user: s
 
     if current_balance <= 0.0:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"This student has already cleared the full agreed fee of ₹ {total_agreed:,.0f}. Balance Due is ₹ 0.")
+        raise HTTPException(status_code=400, detail=f"This student has already cleared the full agreed fee of â‚¹ {total_agreed:,.0f}. Balance Due is â‚¹ 0.")
 
     if req.amount_paid > current_balance:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"Payment amount (₹ {req.amount_paid:,.0f}) cannot exceed the remaining balance due of ₹ {current_balance:,.0f} (Agreed Total: ₹ {total_agreed:,.0f}).")
+        raise HTTPException(status_code=400, detail=f"Payment amount (â‚¹ {req.amount_paid:,.0f}) cannot exceed the remaining balance due of â‚¹ {current_balance:,.0f} (Agreed Total: â‚¹ {total_agreed:,.0f}).")
 
     new_balance = max(0.0, current_balance - req.amount_paid)
 
@@ -3452,9 +3458,9 @@ def get_eod_report(target_date: Optional[str] = None, branch: Optional[str] = No
         f"-----------------------------------------\n"
         f"Total Receipts: {len(rows)}\n"
         f"Total Collected: Rs. {total_amount:,.0f}\n"
-        f"• Cash: Rs. {cash_total:,.0f}\n"
-        f"• UPI: Rs. {upi_total:,.0f}\n"
-        f"• Cheque/NEFT: Rs. {bank_total:,.0f}\n"
+        f"â€¢ Cash: Rs. {cash_total:,.0f}\n"
+        f"â€¢ UPI: Rs. {upi_total:,.0f}\n"
+        f"â€¢ Cheque/NEFT: Rs. {bank_total:,.0f}\n"
         f"-----------------------------------------\n"
         f"Overall Pending Balance: Rs. {overall_pending:,.0f}"
     )
@@ -3470,7 +3476,10 @@ def get_eod_report(target_date: Optional[str] = None, branch: Optional[str] = No
         "total_students": total_students,
         "overall_pending": overall_pending,
         "summary_msg": summary_msg,
-        "transactions": [dict_from_row(r) for r in rows]
+        "transactions": [
+            dict(dict_from_row(r), collected_by=resolve_user_display_name(conn, r['collected_by']))
+            for r in rows
+        ]
     }
 
 # ----------------- BULK EXCEL STUDENT IMPORT -----------------
