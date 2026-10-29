@@ -20,9 +20,26 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("khs_release.keystore")
+            storePassword = "kranthi123"
+            keyAlias = "khsbilling"
+            keyPassword = "kranthi123"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = false
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
