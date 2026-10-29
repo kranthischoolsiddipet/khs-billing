@@ -11,8 +11,8 @@ android {
         applicationId = "com.kranthischool.khsbilling"
         minSdk = 30 // Compatible with Android 11+
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

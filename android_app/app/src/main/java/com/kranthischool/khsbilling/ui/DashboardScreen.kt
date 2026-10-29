@@ -2,6 +2,7 @@ package com.kranthischool.khsbilling.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,6 +17,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -51,11 +55,11 @@ fun DashboardScreen(
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Notifications state (for Admin)
+    // Notifications state
     var notificationsList by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var showNotificationDialog by remember { mutableStateOf(false) }
 
-    // New Admission state (for Front Desk)
+    // New Admission state (Front Desk)
     var showAdmitDialog by remember { mutableStateOf(false) }
     var isSubmittingAdmit by remember { mutableStateOf(false) }
     var admitAdmNo by remember { mutableStateOf("") }
@@ -118,56 +122,95 @@ fun DashboardScreen(
     }
 
     Scaffold(
+        containerColor = Color(0xFFF8FAFC),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Kranthi High School",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "$userName • $roleDisplay",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    if (isAdmin) {
-                        IconButton(onClick = {
-                            fetchNotifications()
-                            showNotificationDialog = true
-                        }) {
-                            BadgedBox(
-                                badge = {
-                                    if (notificationsList.isNotEmpty()) {
-                                        Badge { Text(notificationsList.size.toString()) }
-                                    }
+            Surface(
+                color = Color.White,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Brush.linearGradient(listOf(Color(0xFF4338CA), Color(0xFF6366F1)))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("KHS", fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 13.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column {
+                            Text(
+                                text = "Kranthi High School",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isAdmin) Color(0xFFEEF2FF) else Color(0xFFECFDF5)
+                                ) {
+                                    Text(
+                                        text = roleDisplay,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isAdmin) Color(0xFF4338CA) else Color(0xFF047857),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
                                 }
-                            ) {
-                                Icon(Icons.Default.Notifications, contentDescription = "Activity Feed")
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "v1.4.0",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
                             }
                         }
-                        IconButton(onClick = { showChangePinDialog = true }) {
-                            Icon(Icons.Default.Lock, contentDescription = "Change PIN")
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isAdmin) {
+                            IconButton(onClick = {
+                                fetchNotifications()
+                                showNotificationDialog = true
+                            }) {
+                                BadgedBox(
+                                    badge = {
+                                        if (notificationsList.isNotEmpty()) {
+                                            Badge(containerColor = Color(0xFFDC2626)) { Text(notificationsList.size.toString()) }
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Notifications, contentDescription = "Activity Feed", tint = Color(0xFF334155))
+                                }
+                            }
+                            IconButton(onClick = { showChangePinDialog = true }) {
+                                Icon(Icons.Default.Lock, contentDescription = "Change PIN", tint = Color(0xFF334155))
+                            }
+                        }
+                        IconButton(onClick = { doSearch(searchQuery) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF334155))
+                        }
+                        IconButton(onClick = {
+                            sessionManager.clearSession()
+                            onLogout()
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color(0xFFDC2626))
                         }
                     }
-                    IconButton(onClick = { doSearch(searchQuery) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                    }
-                    IconButton(onClick = {
-                        sessionManager.clearSession()
-                        onLogout()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
+                }
+            }
         },
         floatingActionButton = {
             if (!isAdmin) {
@@ -180,10 +223,11 @@ fun DashboardScreen(
                         admitInitialPayment = ""
                         showAdmitDialog = true
                     },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "New Admission") },
+                    icon = { Icon(Icons.Default.PersonAdd, contentDescription = "New Admission") },
                     text = { Text("New Admission", fontWeight = FontWeight.Bold) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = Color(0xFF4338CA),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
                 )
             }
         }
@@ -194,35 +238,39 @@ fun DashboardScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            // ADMIN MENU DASHBOARD (5 Clear Options)
+            // ADMIN 5-OPTION MODERN COMMAND CENTER
             if (isAdmin) {
                 Text(
-                    text = "Administrator Controls",
-                    fontSize = 15.sp,
+                    text = "MANAGEMENT HUB",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 10.dp)
+                    color = Color(0xFF64748B),
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
 
+                // 2 x 2 Grid
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AdminMenuCard(
+                    ModernAdminCard(
                         title = "Enrolled Students",
-                        subtitle = "View all records",
+                        subtitle = "Full Directory",
                         icon = Icons.Default.Groups,
-                        color = Color(0xFF2563EB),
+                        iconTint = Color(0xFF2563EB),
+                        iconBg = Color(0xFFEFF6FF),
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateEnrolledStudents
                     )
-                    AdminMenuCard(
+                    ModernAdminCard(
                         title = "Approvals",
-                        subtitle = "Concessions & Changes",
+                        subtitle = "Concessions",
                         icon = Icons.Default.FactCheck,
-                        color = Color(0xFFD97706),
+                        iconTint = Color(0xFFD97706),
+                        iconBg = Color(0xFFFEF3C7),
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateApprovals
                     )
@@ -231,69 +279,95 @@ fun DashboardScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    AdminMenuCard(
+                    ModernAdminCard(
                         title = "EOD Reports",
                         subtitle = "Daily Collection",
                         icon = Icons.Default.Assessment,
-                        color = Color(0xFF059669),
+                        iconTint = Color(0xFF059669),
+                        iconBg = Color(0xFFECFDF5),
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateEodReports
                     )
-                    AdminMenuCard(
+                    ModernAdminCard(
                         title = "Staff & Cashiers",
-                        subtitle = "Accounts & Activity",
+                        subtitle = "Counter Accounts",
                         icon = Icons.Default.Badge,
-                        color = Color(0xFF7C3AED),
+                        iconTint = Color(0xFF7C3AED),
+                        iconBg = Color(0xFFF5F3FF),
                         modifier = Modifier.weight(1f),
                         onClick = onNavigateStaffList
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(10.dp))
+                // Section Divider with Label
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "FEE COLLECTION",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF64748B),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                }
+            }
 
-                Text(
-                    text = "Fee Collection & Quick Search",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
+            // Modern Search Bar
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color.White,
+                shadowElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = {
+                        searchQuery = it
+                        if (it.length >= 2 || it.isEmpty()) {
+                            doSearch(it)
+                        }
+                    },
+                    placeholder = { Text("Search by Student Name, Class, Adm No...", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF4338CA)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF4338CA),
+                        unfocusedBorderColor = Color(0xFFE2E8F0),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White
+                    )
                 )
             }
 
-            // Search Bar for Fee Collection (Used by both Admin & Front Desk)
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = {
-                    searchQuery = it
-                    if (it.length >= 2 || it.isEmpty()) {
-                        doSearch(it)
-                    }
-                },
-                placeholder = { Text("Search Student to Collect Fee...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
+            // Student List Stream
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = Color(0xFF4338CA))
                 }
             } else if (errorMessage != null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(errorMessage ?: "", color = MaterialTheme.colorScheme.error)
+                    Text(errorMessage ?: "", color = Color(0xFFDC2626), fontSize = 14.sp)
                 }
             } else if (studentsList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No students found.", color = Color.Gray)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.School, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(56.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("No students found.", color = Color(0xFF94A3B8), fontSize = 14.sp)
+                    }
                 }
             } else {
                 LazyColumn(
@@ -301,62 +375,86 @@ fun DashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(studentsList) { student ->
-                        StudentCard(student = student, onClick = { onSelectStudent(student.id) })
+                        ModernStudentCard(student = student, onClick = { onSelectStudent(student.id) })
                     }
                 }
             }
         }
     }
 
-    // --- ADMIN NOTIFICATIONS FEED DIALOG ---
+    // --- NOTIFICATIONS FEED DIALOG ---
     if (showNotificationDialog && isAdmin) {
         AlertDialog(
             onDismissRequest = { showNotificationDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Admin Activity Feed")
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color(0xFFEEF2FF), shape = RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, tint = Color(0xFF4338CA), modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Admin Activity Feed", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
             },
             text = {
                 if (notificationsList.isEmpty()) {
-                    Text("No recent notifications.", color = Color.Gray)
+                    Text("No recent alerts or actions.", color = Color.Gray)
                 } else {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 400.dp),
+                            .heightIn(max = 420.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(notificationsList) { item ->
-                            val iconVector = when (item.type) {
-                                "APPROVAL" -> Icons.Default.Warning
-                                "NEW_ADMISSION" -> Icons.Default.CheckCircle
-                                else -> Icons.Default.Info
-                            }
                             val iconColor = when (item.type) {
                                 "APPROVAL" -> Color(0xFFD97706)
                                 "NEW_ADMISSION" -> Color(0xFF059669)
-                                else -> MaterialTheme.colorScheme.primary
+                                else -> Color(0xFF2563EB)
+                            }
+                            val iconBg = when (item.type) {
+                                "APPROVAL" -> Color(0xFFFEF3C7)
+                                "NEW_ADMISSION" -> Color(0xFFECFDF5)
+                                else -> Color(0xFFEFF6FF)
                             }
 
-                            Card(
+                            Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(10.dp),
+                                    modifier = Modifier.padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(iconVector, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
-                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .background(iconBg, shape = CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            when (item.type) {
+                                                "APPROVAL" -> Icons.Default.Warning
+                                                "NEW_ADMISSION" -> Icons.Default.CheckCircle
+                                                else -> Icons.Default.Receipt
+                                            },
+                                            contentDescription = null,
+                                            tint = iconColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column {
-                                        Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Text(item.body, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                        Text(item.body, fontSize = 12.sp, color = Color(0xFF475569))
                                         if (!item.time.isNullOrBlank()) {
-                                            Text(item.time, fontSize = 10.sp, color = Color.Gray)
+                                            Text(item.time, fontSize = 10.sp, color = Color(0xFF94A3B8), modifier = Modifier.padding(top = 2.dp))
                                         }
                                     }
                                 }
@@ -367,7 +465,7 @@ fun DashboardScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showNotificationDialog = false }) {
-                    Text("Close")
+                    Text("Close", fontWeight = FontWeight.Bold, color = Color(0xFF4338CA))
                 }
             }
         )
@@ -377,7 +475,7 @@ fun DashboardScreen(
     if (showAdmitDialog && !isAdmin) {
         AlertDialog(
             onDismissRequest = { if (!isSubmittingAdmit) showAdmitDialog = false },
-            title = { Text("New Student Admission") },
+            title = { Text("New Student Admission", fontWeight = FontWeight.Bold) },
             text = {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
@@ -461,7 +559,7 @@ fun DashboardScreen(
                 Button(
                     onClick = {
                         if (admitName.isBlank() || admitParentName.isBlank() || admitParentPhone.length < 10) {
-                            Toast.makeText(context, "Please fill required details and valid 10-digit phone", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Please enter student name, parent name & 10-digit phone", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         isSubmittingAdmit = true
@@ -494,10 +592,11 @@ fun DashboardScreen(
                             }
                         }
                     },
-                    enabled = !isSubmittingAdmit
+                    enabled = !isSubmittingAdmit,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4338CA))
                 ) {
                     if (isSubmittingAdmit) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Text("Admit Student")
                     }
@@ -515,7 +614,7 @@ fun DashboardScreen(
     if (showChangePinDialog && isAdmin) {
         AlertDialog(
             onDismissRequest = { if (!isChangingPin) showChangePinDialog = false },
-            title = { Text("Change Admin PIN") },
+            title = { Text("Change Admin PIN", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Update your 6-digit PIN used to log into KHS Billing.", fontSize = 13.sp, color = Color.Gray)
@@ -571,10 +670,11 @@ fun DashboardScreen(
                             }
                         }
                     },
-                    enabled = !isChangingPin
+                    enabled = !isChangingPin,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4338CA))
                 ) {
                     if (isChangingPin) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Text("Update PIN")
                     }
@@ -590,57 +690,60 @@ fun DashboardScreen(
 }
 
 @Composable
-fun AdminMenuCard(
+fun ModernAdminCard(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    color: Color,
+    iconTint: Color,
+    iconBg: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = modifier
-            .height(90.dp)
+            .height(96.dp)
             .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        shadowElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .background(color.copy(alpha = 0.12f), shape = RoundedCornerShape(8.dp)),
+                    .size(44.dp)
+                    .background(iconBg, shape = RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(24.dp))
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-                Text(subtitle, fontSize = 11.sp, color = Color.Gray)
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0F172A), lineHeight = 16.sp)
+                Text(subtitle, fontSize = 11.sp, color = Color(0xFF64748B), modifier = Modifier.padding(top = 2.dp))
             }
         }
     }
 }
 
 @Composable
-fun StudentCard(
+fun ModernStudentCard(
     student: Student,
     onClick: () -> Unit
 ) {
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White,
+        shadowElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF1F5F9))
     ) {
         Row(
             modifier = Modifier
@@ -649,38 +752,58 @@ fun StudentCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = student.getDisplayName(),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Class: ${student.getEffectiveClass()} • Adm: ${student.admission_no ?: student.student_id ?: "N/A"}",
-                    fontSize = 13.sp,
-                    color = Color.Gray
-                )
-                val phoneNum = student.getEffectivePhone()
-                if (!phoneNum.isNullOrBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(Color(0xFFEEF2FF), shape = CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "Ph: $phoneNum",
-                        fontSize = 12.sp,
-                        color = Color.Gray
+                        student.getDisplayName().take(1).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = Color(0xFF4338CA)
                     )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = student.getDisplayName(),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = "Class ${student.getEffectiveClass()} • Adm: ${student.admission_no ?: student.student_id ?: "N/A"}",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B)
+                    )
+                    val phoneNum = student.getEffectivePhone()
+                    if (!phoneNum.isNullOrBlank()) {
+                        Text(
+                            text = "Ph: $phoneNum",
+                            fontSize = 11.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
                 }
             }
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "Due Balance",
-                    fontSize = 11.sp,
-                    color = Color.Gray
+                    text = "DUE BALANCE",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8),
+                    letterSpacing = 0.5.sp
                 )
                 Text(
                     text = "₹ ${student.balance.toInt()}",
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = if (student.balance > 0) Color(0xFFDC2626) else Color(0xFF059669)
                 )
             }

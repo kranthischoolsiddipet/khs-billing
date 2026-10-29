@@ -124,7 +124,7 @@ fun EnrolledStudentsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(studentsList) { student ->
-                        StudentCard(student = student, onClick = { onSelectStudent(student.id) })
+                        ModernStudentCard(student = student, onClick = { onSelectStudent(student.id) })
                     }
                 }
             }
