@@ -44,6 +44,14 @@ interface KhsApiService {
     @GET("/api/notifications/feed")
     suspend fun getNotificationsFeed(@Query("limit") limit: Int = 30): Response<NotificationFeedResponse>
 
+    @GET("/api/students/class-wise")
+    suspend fun getStudentsClassWise(
+        @Query("class_name") className: String? = null,
+        @Query("section") section: String? = null,
+        @Query("status") status: String? = null,
+        @Query("branch") branch: String? = null
+    ): Response<ClassWiseResponse>
+
     @GET("/api/reports/eod")
     suspend fun getEodReport(
         @Query("target_date") targetDate: String? = null,

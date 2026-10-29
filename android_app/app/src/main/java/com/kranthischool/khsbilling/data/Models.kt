@@ -193,6 +193,32 @@ data class NotificationFeedResponse(
     val notifications: List<NotificationItem> = emptyList()
 )
 
+data class ClassSummaryItem(
+    val class_name: String,
+    val total_students: Int = 0,
+    val active_students: Int = 0,
+    val cancelled_students: Int = 0,
+    val day_scholars: Int = 0,
+    val residentials: Int = 0,
+    val total_agreed_fee: Double = 0.0,
+    val total_collected: Double = 0.0,
+    val total_balance: Double = 0.0
+)
+
+data class ClassWiseStats(
+    val total_enrolled: Int = 0,
+    val active_count: Int = 0,
+    val total_agreed: Double = 0.0,
+    val total_paid: Double = 0.0,
+    val total_balance: Double = 0.0
+)
+
+data class ClassWiseResponse(
+    val class_summaries: List<ClassSummaryItem> = emptyList(),
+    val students: List<Student> = emptyList(),
+    val stats: ClassWiseStats? = null
+)
+
 data class EodReportResponse(
     val target_date: String? = null,
     val branch: String? = null,
