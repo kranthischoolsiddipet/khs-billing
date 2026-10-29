@@ -265,6 +265,23 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_iplogs_date ON ip_access_logs(date_only);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);")
 
+    # Mobile Devices & FCM Push Token Registry
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS device_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        role TEXT NOT NULL,
+        device_token TEXT UNIQUE NOT NULL,
+        device_name TEXT DEFAULT '',
+        platform TEXT DEFAULT 'android',
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(username);")
+
     # 6. Seed Default Users if not present
     cursor.execute("SELECT COUNT(*) FROM users;")
     if cursor.fetchone()[0] == 0:

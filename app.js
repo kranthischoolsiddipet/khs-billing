@@ -5,6 +5,26 @@ let searchDebounceTimer = null;
 let pendingDiscountsList = [];
 let activeAdmissionDraftId = null;
 
+// Global Fetch Interceptor: Automatically attaches Bearer session token to all outgoing API calls
+const originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  options.headers = options.headers || {};
+  if (currentUser && currentUser.session_token) {
+    if (options.headers instanceof Headers) {
+      if (!options.headers.has('Authorization')) {
+        options.headers.set('Authorization', `Bearer ${currentUser.session_token}`);
+      }
+    } else if (Array.isArray(options.headers)) {
+      options.headers.push(['Authorization', `Bearer ${currentUser.session_token}`]);
+    } else {
+      if (!options.headers['Authorization']) {
+        options.headers['Authorization'] = `Bearer ${currentUser.session_token}`;
+      }
+    }
+  }
+  return originalFetch.call(this, url, options);
+};
+
 // Session ID Management for Audit & Activity Trail
 function getOrCreateSessionId() {
   let sId = sessionStorage.getItem('khs_session_id');

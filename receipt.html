@@ -66,6 +66,29 @@
       width: 520px !important;
       height: 520px !important;
     }
+
+    /* Thermal POS 80mm layout for handheld/Bluetooth printers */
+    .paper-thermal {
+      max-width: 320px !important;
+      width: 100% !important;
+      padding: 2px !important;
+    }
+    .paper-thermal .receipt-card {
+      padding: 6px !important;
+      border: 1px dashed #475569 !important;
+    }
+    .paper-thermal .cut-line {
+      display: none !important;
+    }
+    .paper-thermal .school-copy {
+      display: none !important;
+    }
+    .paper-thermal table {
+      font-size: 9px !important;
+    }
+    .paper-thermal th, .paper-thermal td {
+      padding: 2px 3px !important;
+    }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen py-6 px-3 flex flex-col items-center text-slate-800">
@@ -85,8 +108,9 @@
           <span>Paper Size:</span>
         </label>
         <select id="paperSizeSelect" onchange="changePaperSize(this.value)" class="text-xs font-bold text-slate-800 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none">
-          <option value="A5" selected>A5 (Half Page)</option>
-          <option value="A4">A4 (Full Page)</option>
+          <option value="A5" selected>A5 (Dual Parent/School)</option>
+          <option value="A4">A4 (Standard Full)</option>
+          <option value="thermal">Thermal POS (80mm / 58mm)</option>
         </select>
       </div>
 
@@ -216,7 +240,7 @@
       </div>
 
       <!-- ================= 2. SCHOOL COPY (BOTTOM HALF) ================= -->
-      <div class="receipt-card bg-transparent rounded-xl border border-slate-300 p-4 relative">
+      <div class="school-copy receipt-card bg-transparent rounded-xl border border-slate-300 p-4 relative">
         <!-- Top Header Row -->
         <div class="flex items-center justify-between border-b border-slate-300 pb-2.5">
           <div class="flex items-center space-x-3">
@@ -405,26 +429,31 @@
       }
     }
 
-    // Dynamic Paper Size Handler (A5 vs A4)
+    // Dynamic Paper Size Handler (A5, A4, Thermal POS)
     function changePaperSize(size) {
       const container = document.getElementById('receiptContainer');
       const printBtnLabel = document.getElementById('printBtnLabel');
       const styleEl = document.getElementById('pagePrintStyle');
 
+      container.classList.remove('paper-a5', 'paper-a4', 'paper-thermal');
+
       if (size === 'A4') {
-        container.classList.remove('paper-a5');
         container.classList.add('paper-a4');
         printBtnLabel.innerText = "Print A4 Receipt";
-        // Update CSS @page size dynamically
         if (styleEl) {
-          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*A5\s*portrait;/g, 'size: A4 portrait;').replace(/margin:\s*5mm;/g, 'margin: 8mm;');
+          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*[^;]+;/g, 'size: A4 portrait;').replace(/margin:\s*[^;]+;/g, 'margin: 8mm;');
+        }
+      } else if (size === 'thermal') {
+        container.classList.add('paper-thermal');
+        printBtnLabel.innerText = "Print Thermal Receipt";
+        if (styleEl) {
+          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*[^;]+;/g, 'size: 80mm auto;').replace(/margin:\s*[^;]+;/g, 'margin: 2mm;');
         }
       } else {
-        container.classList.remove('paper-a4');
         container.classList.add('paper-a5');
         printBtnLabel.innerText = "Print A5 Receipt";
         if (styleEl) {
-          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*A4\s*portrait;/g, 'size: A5 portrait;').replace(/margin:\s*8mm;/g, 'margin: 5mm;');
+          styleEl.innerHTML = styleEl.innerHTML.replace(/size:\s*[^;]+;/g, 'size: A5 portrait;').replace(/margin:\s*[^;]+;/g, 'margin: 5mm;');
         }
       }
     }

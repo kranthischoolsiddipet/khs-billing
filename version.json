@@ -1,7 +1,7 @@
 {
-  "version": "1.2.7",
-  "released_at": "2026-10-28",
-  "notes": "Enabled transparent concession / discount breakdown on receipts, ordered fee structures from PP1 to Class 10, and unified admin approvals history.",
+  "version": "1.3.0",
+  "released_at": "2026-10-29",
+  "notes": "Enabled mobile-ready Bearer token auth, device registration for Admin push alerts, thermal POS receipt support (80mm/58mm), and pre-admission mobile sync.",
   "files": [
     "index.html",
     "receipt.html",

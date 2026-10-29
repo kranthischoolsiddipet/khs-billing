@@ -129,6 +129,11 @@ class LoginRequest(BaseModel):
     password: str
     session_id: Optional[str] = ""
 
+class DeviceTokenRegisterRequest(BaseModel):
+    device_token: str
+    device_name: Optional[str] = "Android Device"
+    platform: Optional[str] = "android"
+
 class FeeStructureUpdate(BaseModel):
     class_name: str
     student_type: str
@@ -897,6 +902,136 @@ def check_user_session(username: str = Query(...), token: str = Query(...)):
         return {"active": False, "reason": "Your session has been logged out by Admin / Management"}
 
     return {"active": True}
+
+# ----------------- MOBILE API HELPER & DEVICE TOKEN APIS -----------------
+
+def get_authenticated_user(request: Request) -> Optional[dict]:
+    """
+    Unified authentication helper for Web & Mobile Clients:
+    Checks for 'Authorization: Bearer <token>' header, query parameter 'session_token', or 'X-Session-Token' header.
+    Returns the user dict if valid, else None.
+    """
+    token = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif request.headers.get("X-Session-Token"):
+        token = request.headers.get("X-Session-Token").strip()
+    elif request.query_params.get("session_token"):
+        token = request.query_params.get("session_token").strip()
+
+    if not token:
+        return None
+
+    conn = get_db()
+    user = conn.execute("SELECT id, username, full_name, role, phone, is_active, session_token FROM users WHERE session_token = ? AND is_active = 1", (token,)).fetchone()
+    conn.close()
+    return dict_from_row(user) if user else None
+
+@app.get("/api/auth/me")
+def get_current_user_profile(request: Request):
+    """Mobile & Web endpoint to get current active user profile via Bearer token"""
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired session token")
+    return {"status": "success", "user": user}
+
+@app.post("/api/devices/register")
+def register_device_token(data: DeviceTokenRegisterRequest, request: Request):
+    """
+    Registers an Android or iOS device token (e.g. Firebase Cloud Messaging / FCM token)
+    for real-time push notifications on Admin approvals.
+    """
+    user = get_authenticated_user(request)
+    if not user:
+        # Fallback to query param operator_user if needed
+        op_user = request.query_params.get("operator_user")
+        if op_user:
+            conn = get_db()
+            user = conn.execute("SELECT id, username, full_name, role FROM users WHERE username = ?", (op_user,)).fetchone()
+            conn.close()
+            user = dict_from_row(user) if user else None
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to register device token.")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO device_tokens (user_id, username, role, device_token, device_name, platform, is_active, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT(device_token) DO UPDATE SET
+            user_id = excluded.user_id,
+            username = excluded.username,
+            role = excluded.role,
+            device_name = excluded.device_name,
+            platform = excluded.platform,
+            is_active = 1,
+            updated_at = CURRENT_TIMESTAMP
+    """, (user['id'], user['username'], user['role'], data.device_token.strip(), data.device_name, data.platform))
+    conn.commit()
+    conn.close()
+
+    # Replicate to Turso Cloud
+    try:
+        import cloud_sync
+        url, token = cloud_sync.DEFAULT_TURSO_URL, cloud_sync.DEFAULT_TURSO_TOKEN
+        cloud_sync.execute_remote_turso_queries([{
+            "sql": """
+                INSERT INTO device_tokens (user_id, username, role, device_token, device_name, platform, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(device_token) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    username = excluded.username,
+                    role = excluded.role,
+                    device_name = excluded.device_name,
+                    platform = excluded.platform,
+                    is_active = 1,
+                    updated_at = CURRENT_TIMESTAMP;
+            """,
+            "args": [user['id'], user['username'], user['role'], data.device_token.strip(), data.device_name, data.platform]
+        }], url, token)
+    except Exception:
+        pass
+
+    return {"status": "success", "message": "Device registered for push notifications."}
+
+def notify_admins_of_pending_request(title: str, body: str, data_payload: dict = None):
+    """
+    Broadcasts push notifications to all registered T1/T2 Admin devices.
+    Prepares payload for Android Firebase Cloud Messaging (FCM).
+    """
+    try:
+        conn = get_db()
+        admin_devices = conn.execute("SELECT device_token, username FROM device_tokens WHERE role IN ('T1', 'T2') AND is_active = 1").fetchall()
+        conn.close()
+        tokens = [row['device_token'] for row in admin_devices if row['device_token']]
+        if tokens:
+            print(f"[PUSH NOTIFICATION DISPATCH] Sending to {len(tokens)} Admin devices: {title} - {body}")
+            # If FCM server key / credentials are configured, send HTTP v1 push notification
+            fcm_server_key = os.environ.get("FCM_SERVER_KEY")
+            if fcm_server_key:
+                import requests as py_requests
+                headers = {
+                    "Authorization": f"key={fcm_server_key}",
+                    "Content-Type": "application/json"
+                }
+                for tok in tokens:
+                    payload = {
+                        "to": tok,
+                        "notification": {
+                            "title": title,
+                            "body": body,
+                            "sound": "default"
+                        },
+                        "data": data_payload or {}
+                    }
+                    try:
+                        py_requests.post("https://fcm.googleapis.com/fcm/send", json=payload, headers=headers, timeout=3)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"[PUSH NOTIFICATION ERROR]: {e}")
 
 @app.get("/api/audit-logs")
 def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...)):
@@ -1933,6 +2068,13 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
     except Exception:
         pass
 
+    # Real-time Push Notification alert to Admins
+    notify_admins_of_pending_request(
+        title="Fee Concession Requested",
+        body=f"₹ {req.requested_discount:,.0f} requested for {req.student_name} ({req.class_name}) by {operator_name}.",
+        data_payload={"type": "DISCOUNT", "request_id": str(req_id), "admission_no": req.admission_no}
+    )
+
     return {"status": "success", "request_id": req_id, "message": "Discount approval request sent to Admin."}
 
 @app.get("/api/discounts/status/{request_id}")
@@ -2338,6 +2480,14 @@ def request_admission_change(req: AdmissionChangeRequest, operator_user: str = Q
         msg_type = "Admission Cancellation"
     else:
         msg_type = "Admission Details Modification"
+
+    # Real-time Push Notification alert to Admins
+    notify_admins_of_pending_request(
+        title=f"{msg_type} Requested",
+        body=f"{msg_type} requested for {student['student_name']} ({student['admission_no']}) by {operator_name}.",
+        data_payload={"type": req.request_type, "request_id": str(req_id), "admission_no": student['admission_no']}
+    )
+
     return {
         "status": "success",
         "request_id": req_id,

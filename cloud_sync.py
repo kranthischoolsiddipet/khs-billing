@@ -412,6 +412,20 @@ def init_remote_schema_if_needed(db_url: str, auth_token: str):
                 date_only TEXT NOT NULL
             );
         """},
+        {"sql": """
+            CREATE TABLE IF NOT EXISTS device_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                role TEXT NOT NULL,
+                device_token TEXT UNIQUE NOT NULL,
+                device_name TEXT DEFAULT '',
+                platform TEXT DEFAULT 'android',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+        """},
         {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_date ON ip_access_logs(date_only);"},
         {"sql": "CREATE INDEX IF NOT EXISTS idx_iplogs_ip ON ip_access_logs(ip_address);"},
         {"sql": """
