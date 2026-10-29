@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "provider": "turso_http",
+  "db_url": "libsql://khs-billing-kranthischoolsiddipet.aws-ap-south-1.turso.io",
+  "auth_token": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI0Mjk0NzQsImlkIjoiMDFhMTU1MTktNGQwMS03NGJkLTlkMjQtODEyZDAxNmRiYTg2Iiwia2lkIjoiUFRGaVdLU3ZndTFmS05kVUlsazJYMDdBR091eTVvU3pyQVYxX2hZUDN2NCIsInJpZCI6ImRlYjZlZGI4LTk2MTUtNDE3NC04ZTkxLTFkZTFmODg5ZDViZCJ9.k70_3KFb9jXiHOqme7MA9WHA7R00VfryQUfb6mx7Ng6z6u1U7BhzJuBcqFJKnpx6iTonZNI0CpPTsMxK1IguAQ",
+  "branch": "Branch 1",
+  "auto_sync_interval_seconds": 30
+}

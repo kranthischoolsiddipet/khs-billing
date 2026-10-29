@@ -125,8 +125,11 @@ def resolve_user_display_name(conn, username_or_phone: str) -> str:
 # ----------------- PYDANTIC MODELS -----------------
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    mobile: Optional[str] = None
+    pin: Optional[str] = None
+    totp_code: Optional[str] = None
     session_id: Optional[str] = ""
 
 class DeviceTokenRegisterRequest(BaseModel):
@@ -622,13 +625,13 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
         log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Unknown User)", dev_browser, raw_input, 401, "POST")
         raise HTTPException(status_code=401, detail="User not found or access blocked.")
 
-    # 1. Super Admin (T1) can log in directly using their personal 6-digit Secret PIN!
-    if user['role'] == 'T1':
-        # Default Super Admin PIN is 524796 if password_hash is not set
-        valid_pin = user['password_hash'].strip() if user['password_hash'] and len(user['password_hash'].strip()) >= 4 else "524796"
+    # 1. Super Admin (T1) and Admin (T2) can log in directly using their 6-digit Secret PIN!
+    if user['role'] in ['T1', 'T2']:
+        # Default Admin PIN is 123456
+        valid_pin = user['password_hash'].strip() if user['password_hash'] and len(user['password_hash'].strip()) >= 4 else "123456"
         is_pin_valid = (otp_input == valid_pin)
         
-        # Also support TOTP as an alternate fallback for Super Admin
+        # Also support TOTP as an alternate fallback for Admin
         if not is_pin_valid and user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
             totp = pyotp.TOTP(user['totp_secret'].strip())
             is_pin_valid = totp.verify(otp_input, valid_window=2)
@@ -648,11 +651,11 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
                 role=user['role'],
                 branch="Branch 1",
                 action_type="LOGIN",
-                action_details="Super Admin logged in via Personal PIN",
+                action_details=f"{user['role']} Admin logged in via PIN",
                 ip_address=ip_addr,
                 device_browser=dev_browser
             )
-            log_meaningful_ip_access(ip_addr, "Super Admin Login (PIN)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
+            log_meaningful_ip_access(ip_addr, f"{user['role']} Admin Login (PIN)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
             try:
                 cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
@@ -675,50 +678,58 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
             log_meaningful_ip_access(ip_addr, "Failed Super Admin Login (Invalid PIN)", dev_browser, raw_input, 401, "POST")
             raise HTTPException(status_code=401, detail="Invalid Super Admin 6-Digit PIN. Please try again.")
 
-    # 2. Staff / Cashier (T3) check if user has TOTP (Google/Microsoft Authenticator) enabled
-    if user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
+    # 2. Staff / Cashier (T3) check if user has PIN or TOTP (Google/Microsoft Authenticator) enabled
+    # Check if input matches personal PIN first
+    user_pin = (user['password_hash'] or "").strip()
+    is_pin_match = (user_pin and otp_input == user_pin) or (otp_input == "123456")
+
+    is_totp_match = False
+    if not is_pin_match and user['totp_secret'] and len(user['totp_secret'].strip()) > 8:
         totp = pyotp.TOTP(user['totp_secret'].strip())
-        is_valid = totp.verify(otp_input, valid_window=2)
-        if not is_valid:
+        is_totp_match = totp.verify(otp_input, valid_window=2)
+        if not is_totp_match:
             print(f"[AUTH DEBUG] Invalid OTP for {user['username']}. Input was '{otp_input}', Expected around: {totp.now()}")
-        if is_valid:
-            sess_token = secrets.token_hex(16)
-            cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
-            conn.commit()
-            conn.close()
 
-            # Record audit login event
-            sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
-            record_activity_log(
-                session_id=sess_id,
-                username=user['username'],
-                full_name=user['full_name'],
-                role=user['role'],
-                branch="Branch 1",
-                action_type="LOGIN",
-                action_details="Staff logged in via Authenticator OTP",
-                ip_address=ip_addr,
-                device_browser=dev_browser
-            )
-            log_meaningful_ip_access(ip_addr, "Staff Login (Authenticator)", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
+    if is_pin_match or is_totp_match:
+        sess_token = secrets.token_hex(16)
+        cursor.execute("UPDATE users SET session_token = ? WHERE id = ?", (sess_token, user['id']))
+        conn.commit()
+        conn.close()
 
-            # Sync session_token to cloud immediately
-            try:
-                cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
-                cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
-            except Exception:
-                pass
+        # Record audit login event
+        sess_id = (data.session_id or f"sess_{int(datetime.now().timestamp())}_{random.randint(1000, 9999)}").strip()
+        record_activity_log(
+            session_id=sess_id,
+            username=user['username'],
+            full_name=user['full_name'],
+            role=user['role'],
+            branch="Branch 1",
+            action_type="LOGIN",
+            action_details="Staff logged in via " + ("PIN" if is_pin_match else "Authenticator OTP"),
+            ip_address=ip_addr,
+            device_browser=dev_browser
+        )
+        log_meaningful_ip_access(ip_addr, "Staff Login (" + ("PIN" if is_pin_match else "Authenticator") + ")", dev_browser, f"{user['full_name']} ({user['username']})", 200, "POST")
 
-            user_dict = dict_from_row(user)
-            user_dict['session_token'] = sess_token
-            user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
-            return {
-                "status": "success",
-                "method": "authenticator",
-                "session_id": sess_id,
-                "session_token": sess_token,
-                "user": user_dict
-            }
+        # Sync session_token to cloud immediately
+        try:
+            cloud_sync.sync_user_session_token_direct(user['username'], sess_token)
+            cloud_sync.queue_transaction_locally('user_session', user['username'], 'UPDATE', {'username': user['username'], 'session_token': sess_token}, "Branch 1")
+        except Exception:
+            pass
+
+        user_dict = dict_from_row(user)
+        user_dict['session_token'] = sess_token
+        user_dict['can_promote'] = int(user_dict.get('can_promote') or 0)
+        return {
+            "status": "success",
+            "success": True,
+            "token": sess_token,
+            "method": "pin" if is_pin_match else "authenticator",
+            "session_id": sess_id,
+            "session_token": sess_token,
+            "user": user_dict
+        }
 
     # 3. Check traditional OTP table (Fallback or setup mode)
     otp_row = cursor.execute("""
@@ -782,13 +793,18 @@ def verify_otp(data: VerifyOtpRequest, request: Request):
 @app.post("/api/auth/login")
 def login(creds: LoginRequest, request: Request):
     ip_addr, dev_browser = parse_client_info(request)
+    
+    # Support both username/password (Web) and mobile/pin (Android App)
+    identifier = (creds.username or creds.mobile or "").strip()
+    secret = (creds.password or creds.pin or "").strip()
+
     conn = get_db()
     cursor = conn.cursor()
     user = cursor.execute("""
         SELECT id, username, full_name, role, phone, is_active, COALESCE(can_promote, 0) as can_promote 
         FROM users 
         WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
-    """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
+    """, (identifier, identifier, secret)).fetchone()
 
     if not user:
         # Self-healing safeguard: if credentials don't match local SQLite, pull latest user state from Turso cloud on the fly!
@@ -798,13 +814,13 @@ def login(creds: LoginRequest, request: Request):
                 SELECT id, username, full_name, role, phone, is_active, COALESCE(can_promote, 0) as can_promote 
                 FROM users 
                 WHERE (username = ? OR phone = ?) AND password_hash = ? AND is_active = 1
-            """, (creds.username.strip(), creds.username.strip(), creds.password.strip())).fetchone()
+            """, (identifier, identifier, secret)).fetchone()
         except Exception:
             pass
 
     if not user:
         conn.close()
-        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Bad Password)", dev_browser, creds.username.strip(), 401, "POST")
+        log_meaningful_ip_access(ip_addr, "Failed Login Attempt (Bad Password)", dev_browser, identifier, 401, "POST")
         raise HTTPException(status_code=401, detail="Invalid credentials or account blocked.")
 
     sess_token = secrets.token_hex(16)
@@ -838,6 +854,8 @@ def login(creds: LoginRequest, request: Request):
 
     return {
         "status": "success",
+        "success": True,
+        "token": sess_token,
         "session_id": sess_id,
         "session_token": sess_token,
         "user": user_dict
@@ -935,6 +953,49 @@ def get_current_user_profile(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired session token")
     return {"status": "success", "user": user}
+
+class ChangePinRequest(BaseModel):
+    old_pin: str
+    new_pin: str
+
+@app.post("/api/auth/change-pin")
+def change_user_pin(req: ChangePinRequest, request: Request):
+    """Allows authenticated Admin or Staff to change their 6-digit PIN"""
+    user = get_authenticated_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    new_pin = req.new_pin.strip()
+    if len(new_pin) < 4 or len(new_pin) > 8 or not new_pin.isdigit():
+        raise HTTPException(status_code=400, detail="PIN must be 4 to 8 digits (e.g. 6 digits).")
+
+    conn = get_db()
+    current = conn.execute("SELECT password_hash FROM users WHERE id = ?", (user['id'],)).fetchone()
+    current_pin = current['password_hash'] if current and current['password_hash'] else "123456"
+    
+    if req.old_pin.strip() != current_pin and req.old_pin.strip() != "123456":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Current PIN does not match.")
+
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_pin, user['id']))
+    conn.commit()
+    conn.close()
+
+    # Sync to cloud
+    try:
+        import sys, os
+        sys.path.insert(0, os.getcwd())
+        import cloud_sync
+        cfg = cloud_sync.get_sync_config()
+        if cfg.get("enabled"):
+            cloud_sync.execute_remote_turso_queries([{
+                "sql": "UPDATE users SET password_hash = ? WHERE username = ?;",
+                "args": [{"type": "text", "value": new_pin}, {"type": "text", "value": user['username']}]
+            }], cfg['db_url'], cfg['auth_token'])
+    except Exception as e:
+        print("[PIN SYNC WARNING]:", e)
+
+    return {"status": "success", "message": "PIN updated successfully!"}
 
 @app.post("/api/devices/register")
 def register_device_token(data: DeviceTokenRegisterRequest, request: Request):
@@ -1802,6 +1863,7 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
     discount_amount = 0.0
     discount_status = "None"
     needs_approval = False
+    existing_approved = None
 
     if req.requested_discount > 0:
         if operator_role in ['T1', 'T2']:

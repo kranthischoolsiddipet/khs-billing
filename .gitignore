@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+pyruntime/
+venv/
+ENV/
+
+# Secrets & Database (Keep Turso cloud intact)
+khs_billing.db
+khs_billing.db-wal
+khs_billing.db-shm
+*.db
+backups/
+token.json
+client_secret.json
+service_account.json
+apk_qr.png
+
+# Android build artifacts
+.gradle/
+android_app/.gradle/
+android_app/app/build/
+android_app/build/
+local.properties
+
+# Tools
+mingit/

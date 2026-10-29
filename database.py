@@ -5,7 +5,8 @@ from datetime import datetime
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "khs_billing.db")
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
     conn.row_factory = sqlite3.Row
     return conn
 

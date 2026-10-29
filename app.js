@@ -1359,8 +1359,15 @@ async function handleAdmissionSubmit(e) {
       body: JSON.stringify(payload)
     });
 
-    const data = await res.json();
-    if (!res.ok) return alert(data.detail || 'Admission failed');
+    let data;
+    const textResp = await res.text();
+    try {
+      data = JSON.parse(textResp);
+    } catch (parseErr) {
+      console.error("Non-JSON Server Response:", textResp);
+      return alert("Server Error: " + (textResp.slice(0, 200) || "Invalid server response"));
+    }
+    if (!res.ok) return alert(data.detail || data.message || 'Admission failed');
 
     alert(data.message);
 
