@@ -219,8 +219,8 @@ fun LoginScreen(
                                             val token = body.getAuthToken()
                                             val user = body.user ?: com.kranthischool.khsbilling.data.UserProfile(
                                                 username = "admin",
-                                                full_name = "Admin",
-                                                role = "T2"
+                                                full_name = "Administrator",
+                                                role = "ADMIN"
                                             )
                                             sessionManager.saveSession(token, user)
                                             onLoginSuccess()
@@ -250,7 +250,8 @@ fun LoginScreen(
                                             val token = loginBody.getAuthToken()
                                             val user = loginBody.user ?: com.kranthischool.khsbilling.data.UserProfile(
                                                 username = frontdeskMobile.trim(),
-                                                role = "T3"
+                                                full_name = "Front Desk",
+                                                role = "FRONTDESK"
                                             )
                                             sessionManager.saveSession(token, user)
                                             onLoginSuccess()
@@ -266,7 +267,8 @@ fun LoginScreen(
                                                 val token = otpBody.getAuthToken()
                                                 val user = otpBody.user ?: com.kranthischool.khsbilling.data.UserProfile(
                                                     username = frontdeskMobile.trim(),
-                                                    role = "T3"
+                                                    full_name = "Front Desk",
+                                                    role = "FRONTDESK"
                                                 )
                                                 sessionManager.saveSession(token, user)
                                                 onLoginSuccess()

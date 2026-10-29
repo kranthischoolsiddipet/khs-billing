@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 
 # Ensure current directory is in sys.path
@@ -335,7 +335,7 @@ def parse_client_info(request: Request) -> tuple:
     elif "opera" in ua_lower or "opr/" in ua_lower:
         browser = "Opera"
     
-    device_browser = f"{device} • {browser}"
+    device_browser = f"{device} â€¢ {browser}"
     return client_ip, device_browser
 
 def record_activity_log(session_id: str, username: str, full_name: str, role: str, branch: str, action_type: str, action_details: str = "", entity_id: str = "", amount: float = 0.0, ip_address: str = "", device_browser: str = "", custom_timestamp: str = None):
@@ -1093,6 +1093,102 @@ def notify_admins_of_pending_request(title: str, body: str, data_payload: dict =
                         pass
     except Exception as e:
         print(f"[PUSH NOTIFICATION ERROR]: {e}")
+
+
+@app.get("/api/notifications/feed")
+def get_admin_notifications_feed(limit: int = 30, request: Request = None):
+    """
+    Returns real-time notifications for Administrators:
+    - New Admissions (with student name, class, branch)
+    - Fee Collections (with amount, receipt no, student name)
+    - Fee Concessions & Admission Change Approvals (Pending requests)
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+
+    notifications = []
+
+    # 1. Pending Discount / Concession Requests
+    pending_discounts = cursor.execute("""
+        SELECT id, student_id, admission_no, student_name, class_name, standard_fee, requested_discount, reason, requested_by, created_at
+        FROM discount_requests
+        WHERE status = 'Pending'
+        ORDER BY id DESC LIMIT 15
+    """).fetchall()
+    for row in pending_discounts:
+        notifications.append({
+            "id": f"disc_{row['id']}",
+            "type": "APPROVAL",
+            "title": "Fee Concession Pending",
+            "body": f"Rs. {row['requested_discount']:,.0f} requested for {row['student_name']} ({row['class_name']}) by {row['requested_by']}",
+            "time": str(row['created_at']) if row['created_at'] else "",
+            "reference_id": str(row['id']),
+            "badge_color": "warning"
+        })
+
+    # 2. Pending Admission Changes
+    pending_changes = cursor.execute("""
+        SELECT id, student_id, student_name, admission_no, request_type, old_value, new_value, reason, requested_by, created_at
+        FROM admission_change_requests
+        WHERE status = 'Pending'
+        ORDER BY id DESC LIMIT 15
+    """).fetchall()
+    for row in pending_changes:
+        notifications.append({
+            "id": f"change_{row['id']}",
+            "type": "APPROVAL",
+            "title": f"Admission {row['request_type']} Pending",
+            "body": f"{row['request_type']} requested for {row['student_name']} ({row['admission_no']}) by {row['requested_by']}",
+            "time": str(row['created_at']) if row['created_at'] else "",
+            "reference_id": str(row['id']),
+            "badge_color": "warning"
+        })
+
+    # 3. Recent Admissions (last 15)
+    recent_admissions = cursor.execute("""
+        SELECT id, admission_no, student_name, class_name, section, student_type, admission_date, created_by, created_at
+        FROM students
+        ORDER BY id DESC LIMIT 15
+    """).fetchall()
+    for row in recent_admissions:
+        notifications.append({
+            "id": f"adm_{row['id']}",
+            "type": "NEW_ADMISSION",
+            "title": "New Admission",
+            "body": f"{row['student_name']} ({row['class_name']}-{row['section']}) admitted by {row['created_by']}",
+            "time": str(row['created_at'] or row['admission_date'] or ""),
+            "reference_id": str(row['id']),
+            "badge_color": "success"
+        })
+
+    # 4. Recent Fee Collections (last 20)
+    recent_payments = cursor.execute("""
+        SELECT p.id, p.receipt_no, p.amount_paid, p.payment_mode, p.payment_date, p.collected_by, s.student_name, s.class_name
+        FROM payments p
+        LEFT JOIN students s ON p.student_id = s.id
+        ORDER BY p.id DESC LIMIT 20
+    """).fetchall()
+    for row in recent_payments:
+        notifications.append({
+            "id": f"pay_{row['id']}",
+            "type": "FEE_PAYMENT",
+            "title": "Fee Collected",
+            "body": f"Rs. {row['amount_paid']:,.0f} collected for {row['student_name'] or 'Student'} via {row['payment_mode']} by {row['collected_by']}",
+            "time": str(row['payment_date']) if row['payment_date'] else "",
+            "reference_id": str(row['id']),
+            "badge_color": "info"
+        })
+
+    conn.close()
+
+    notifications.sort(key=lambda x: str(x.get("time") or ""), reverse=True)
+    return {
+        "status": "success",
+        "count": len(notifications[:limit]),
+        "notifications": notifications[:limit]
+    }
+
+
 
 @app.get("/api/audit-logs")
 def get_audit_logs(target_date: str = Query(...), operator_user: str = Query(...)):
@@ -2067,6 +2163,15 @@ def admit_student(req: StudentAdmissionRequest, request: Request, operator_role:
             device_browser=dev_browser
         )
         log_meaningful_ip_access(ip_addr, f"New Admission ({req.student_name.strip()} - {req.class_name})", dev_browser, operator_user, 200, "POST")
+    # Real-time Push Notification alert to Admins for New Admission
+    try:
+        notify_admins_of_pending_request(
+            title="New Student Admitted",
+            body=f"{req.student_name.strip()} ({req.class_name}-{req.section}) admitted by {operator_user}.",
+            data_payload={"type": "NEW_ADMISSION", "admission_no": req.admission_no.strip(), "student_name": req.student_name.strip()}
+        )
+    except Exception:
+        pass
     except Exception as e:
         print(f"[AUDIT LOG ERROR ADMISSION]: {e}")
 
@@ -2133,7 +2238,7 @@ def request_pre_admission_discount(req: PreAdmissionDiscountRequest, operator_us
     # Real-time Push Notification alert to Admins
     notify_admins_of_pending_request(
         title="Fee Concession Requested",
-        body=f"₹ {req.requested_discount:,.0f} requested for {req.student_name} ({req.class_name}) by {operator_name}.",
+        body=f"â‚¹ {req.requested_discount:,.0f} requested for {req.student_name} ({req.class_name}) by {operator_name}.",
         data_payload={"type": "DISCOUNT", "request_id": str(req_id), "admission_no": req.admission_no}
     )
 
@@ -2772,7 +2877,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
 
     if new_fee < total_paid:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"Revised fee (₹ {new_fee:,.0f}) cannot be less than the amount already paid (₹ {total_paid:,.0f}).")
+        raise HTTPException(status_code=400, detail=f"Revised fee (â‚¹ {new_fee:,.0f}) cannot be less than the amount already paid (â‚¹ {total_paid:,.0f}).")
 
     old_agreed = float(student['final_agreed_fee'])
     std_fee = float(student['standard_fee']) if student['standard_fee'] else new_fee
@@ -2808,7 +2913,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
         role=op['role'],
         branch=student['branch'] or "Branch 1",
         action_type="FEE_REVISION",
-        action_details=f"Admin revised agreed fee from ₹ {old_agreed:,.0f} to ₹ {new_fee:,.0f} for {student['student_name']} ({student['admission_no']}). Reason: {req.reason.strip()}",
+        action_details=f"Admin revised agreed fee from â‚¹ {old_agreed:,.0f} to â‚¹ {new_fee:,.0f} for {student['student_name']} ({student['admission_no']}). Reason: {req.reason.strip()}",
         entity_id=student['admission_no'],
         amount=new_fee,
         ip_address=ip_addr,
@@ -2858,7 +2963,7 @@ def revise_fee_direct(req: FeeRevisionDirectRequest, request: Request):
         "status": "success",
         "old_agreed_fee": old_agreed,
         "new_agreed_fee": new_fee,
-        "message": f"Successfully updated agreed fee to ₹ {new_fee:,.0f} for {student['student_name']}."
+        "message": f"Successfully updated agreed fee to â‚¹ {new_fee:,.0f} for {student['student_name']}."
     }
 
 # ----------------- PAYMENTS & INSTALLMENTS (T3) -----------------
@@ -3074,7 +3179,7 @@ def get_student_statement(student_id: int):
                 "standard_fee": std_f,
                 "new_agreed_fee": final_f
             },
-            "reason": dd.get('reason') or f"Admission Fee Concession: ₹ {req_disc:,.0f}",
+            "reason": dd.get('reason') or f"Admission Fee Concession: â‚¹ {req_disc:,.0f}",
             "requested_by": resolve_user_display_name(conn, dd.get('requested_by')),
             "status": dd.get('status', 'Pending'),
             "admin_remarks": dd.get('admin_remarks') or ('Approved by Management' if dd.get('status') == 'Approved' else ''),
@@ -3119,11 +3224,11 @@ def collect_payment(req: PaymentCreateRequest, request: Request, cashier_user: s
 
     if current_balance <= 0.0:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"This student has already cleared the full agreed fee of ₹ {total_agreed:,.0f}. Balance Due is ₹ 0.")
+        raise HTTPException(status_code=400, detail=f"This student has already cleared the full agreed fee of â‚¹ {total_agreed:,.0f}. Balance Due is â‚¹ 0.")
 
     if req.amount_paid > current_balance:
         conn.close()
-        raise HTTPException(status_code=400, detail=f"Payment amount (₹ {req.amount_paid:,.0f}) cannot exceed the remaining balance due of ₹ {current_balance:,.0f} (Agreed Total: ₹ {total_agreed:,.0f}).")
+        raise HTTPException(status_code=400, detail=f"Payment amount (â‚¹ {req.amount_paid:,.0f}) cannot exceed the remaining balance due of â‚¹ {current_balance:,.0f} (Agreed Total: â‚¹ {total_agreed:,.0f}).")
 
     new_balance = max(0.0, current_balance - req.amount_paid)
 
@@ -3214,6 +3319,15 @@ def collect_payment(req: PaymentCreateRequest, request: Request, cashier_user: s
             device_browser=dev_browser
         )
         log_meaningful_ip_access(ip_addr, f"Fee Collection (Rs. {req.amount_paid:,.0f} - {receipt_no})", dev_browser, cashier_user, 200, "POST")
+    # Real-time Push Notification alert to Admins for Fee Collection
+    try:
+        notify_admins_of_pending_request(
+            title="Fee Payment Collected",
+            body=f"Rs. {req.amount_paid:,.0f} collected for {student['student_name']} ({student['admission_no']}) by {cashier_user}.",
+            data_payload={"type": "FEE_PAYMENT", "receipt_no": receipt_no, "amount": str(req.amount_paid)}
+        )
+    except Exception:
+        pass
     except Exception as e:
         print(f"[AUDIT LOG ERROR PAYMENT]: {e}")
 
@@ -3338,9 +3452,9 @@ def get_eod_report(target_date: Optional[str] = None, branch: Optional[str] = No
         f"-----------------------------------------\n"
         f"Total Receipts: {len(rows)}\n"
         f"Total Collected: Rs. {total_amount:,.0f}\n"
-        f"• Cash: Rs. {cash_total:,.0f}\n"
-        f"• UPI: Rs. {upi_total:,.0f}\n"
-        f"• Cheque/NEFT: Rs. {bank_total:,.0f}\n"
+        f"â€¢ Cash: Rs. {cash_total:,.0f}\n"
+        f"â€¢ UPI: Rs. {upi_total:,.0f}\n"
+        f"â€¢ Cheque/NEFT: Rs. {bank_total:,.0f}\n"
         f"-----------------------------------------\n"
         f"Overall Pending Balance: Rs. {overall_pending:,.0f}"
     )

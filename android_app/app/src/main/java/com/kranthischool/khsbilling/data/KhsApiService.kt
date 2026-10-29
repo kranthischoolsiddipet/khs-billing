@@ -38,6 +38,12 @@ interface KhsApiService {
     @POST("/api/auth/change-pin")
     suspend fun changePin(@Body req: ChangePinRequest): Response<GenericResponse>
 
+    @POST("/api/students/admit")
+    suspend fun admitStudent(@Body req: StudentAdmissionSubmitRequest): Response<GenericResponse>
+
+    @GET("/api/notifications/feed")
+    suspend fun getNotificationsFeed(@Query("limit") limit: Int = 30): Response<NotificationFeedResponse>
+
     @POST("/api/devices/register")
     suspend fun registerDeviceToken(
         @Query("token") token: String,

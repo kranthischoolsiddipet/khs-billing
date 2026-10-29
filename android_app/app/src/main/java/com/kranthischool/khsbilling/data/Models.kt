@@ -154,6 +154,41 @@ data class VerifyOtpRequest(
 )
 
 data class GenericResponse(
-    val success: Boolean,
+    val success: Boolean = false,
+    val status: String? = null,
     val message: String? = null
+) {
+    fun isSuccessful(): Boolean = success || status == "success"
+}
+
+data class StudentAdmissionSubmitRequest(
+    val admission_no: String,
+    val student_name: String,
+    val class_name: String,
+    val section: String = "A",
+    val gender: String = "Male",
+    val student_type: String = "Day Scholar",
+    val parent_name: String,
+    val parent_phone: String,
+    val address: String = "Siddipet",
+    val academic_year: String = "2026-2027",
+    val branch: String = "Branch 1",
+    val initial_payment_amount: Double = 0.0,
+    val initial_payment_mode: String = "CASH"
+)
+
+data class NotificationItem(
+    val id: String,
+    val type: String, // "APPROVAL", "NEW_ADMISSION", "FEE_PAYMENT"
+    val title: String,
+    val body: String,
+    val time: String? = null,
+    val reference_id: String? = null,
+    val badge_color: String? = null
+)
+
+data class NotificationFeedResponse(
+    val status: String? = null,
+    val count: Int = 0,
+    val notifications: List<NotificationItem> = emptyList()
 )

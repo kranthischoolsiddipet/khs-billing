@@ -38,6 +38,19 @@ class SessionManager(context: Context) {
 
     fun getUserRole(): String? = prefs.getString(KEY_ROLE, null)
 
+    fun getDisplayRoleName(): String {
+        val r = getUserRole()?.uppercase() ?: ""
+        return when {
+            r == "T1" || r == "T2" || r == "ADMIN" || r == "SUPER_ADMIN" -> "Administrator"
+            else -> "Front Desk"
+        }
+    }
+
+    fun isAdmin(): Boolean {
+        val r = getUserRole()?.uppercase() ?: ""
+        return r == "T1" || r == "T2" || r == "ADMIN" || r == "SUPER_ADMIN"
+    }
+
     fun getUserFullName(): String? = prefs.getString(KEY_FULL_NAME, null)
 
     fun isLoggedIn(): Boolean = !getToken().isNullOrBlank()

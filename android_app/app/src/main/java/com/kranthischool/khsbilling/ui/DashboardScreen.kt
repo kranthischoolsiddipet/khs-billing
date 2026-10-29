@@ -1,17 +1,24 @@
 package com.kranthischool.khsbilling.ui
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,10 +30,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kranthischool.khsbilling.data.ApiClient
-import com.kranthischool.khsbilling.data.ChangePinRequest
-import com.kranthischool.khsbilling.data.SessionManager
-import com.kranthischool.khsbilling.data.Student
+import com.kranthischool.khsbilling.data.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,13 +45,30 @@ fun DashboardScreen(
     val sessionManager = remember { SessionManager(context) }
     val scope = rememberCoroutineScope()
 
-    val userRole = remember { sessionManager.getUserRole() ?: "T3" }
-    val userName = remember { sessionManager.getUserFullName() ?: "Staff" }
+    val isAdmin = remember { sessionManager.isAdmin() }
+    val roleDisplay = remember { sessionManager.getDisplayRoleName() }
+    val userName = remember { sessionManager.getUserFullName() ?: roleDisplay }
 
     var searchQuery by remember { mutableStateOf("") }
     var studentsList by remember { mutableStateOf<List<Student>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Notifications state (for Admin)
+    var notificationsList by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
+    var showNotificationDialog by remember { mutableStateOf(false) }
+
+    // New Admission state (for Front Desk)
+    var showAdmitDialog by remember { mutableStateOf(false) }
+    var isSubmittingAdmit by remember { mutableStateOf(false) }
+    var admitAdmNo by remember { mutableStateOf("") }
+    var admitName by remember { mutableStateOf("") }
+    var admitClass by remember { mutableStateOf("Class 1") }
+    var admitSection by remember { mutableStateOf("A") }
+    var admitType by remember { mutableStateOf("Day Scholar") }
+    var admitParentName by remember { mutableStateOf("") }
+    var admitParentPhone by remember { mutableStateOf("") }
+    var admitInitialPayment by remember { mutableStateOf("") }
 
     // Change PIN Dialog state
     var showChangePinDialog by remember { mutableStateOf(false) }
@@ -74,8 +96,29 @@ fun DashboardScreen(
         }
     }
 
+    fun fetchNotifications() {
+        if (!isAdmin) return
+        scope.launch {
+            try {
+                val api = ApiClient.getService(context)
+                val res = api.getNotificationsFeed(30)
+                if (res.isSuccessful && res.body() != null) {
+                    notificationsList = res.body()?.notifications ?: emptyList()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     LaunchedEffect(Unit) {
         doSearch("")
+        if (isAdmin) {
+            fetchNotifications()
+            // Auto-refresh notifications every 20 seconds for Admin
+            while (true) {
+                delay(20_000)
+                fetchNotifications()
+            }
+        }
     }
 
     Scaffold(
@@ -89,15 +132,31 @@ fun DashboardScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "$userName • Role: $userRole",
+                            text = "$userName • $roleDisplay",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showChangePinDialog = true }) {
-                        Icon(Icons.Default.Lock, contentDescription = "Change PIN")
+                    if (isAdmin) {
+                        IconButton(onClick = {
+                            fetchNotifications()
+                            showNotificationDialog = true
+                        }) {
+                            BadgedBox(
+                                badge = {
+                                    if (notificationsList.isNotEmpty()) {
+                                        Badge { Text(notificationsList.size.toString()) }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.Notifications, contentDescription = "Activity Feed")
+                            }
+                        }
+                        IconButton(onClick = { showChangePinDialog = true }) {
+                            Icon(Icons.Default.Lock, contentDescription = "Change PIN")
+                        }
                     }
                     IconButton(onClick = { doSearch(searchQuery) }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
@@ -106,13 +165,32 @@ fun DashboardScreen(
                         sessionManager.clearSession()
                         onLogout()
                     }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             )
+        },
+        floatingActionButton = {
+            // Front Desk only: New Admission action
+            if (!isAdmin) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        admitAdmNo = "KHS-${System.currentTimeMillis().toString().takeLast(5)}"
+                        admitName = ""
+                        admitParentName = ""
+                        admitParentPhone = ""
+                        admitInitialPayment = ""
+                        showAdmitDialog = true
+                    },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "New Admission") },
+                    text = { Text("New Admission", fontWeight = FontWeight.Bold) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -121,8 +199,8 @@ fun DashboardScreen(
                 .padding(innerPadding)
                 .padding(16.dp)
         ) {
-            // Admin Action Ribbon (T1 / T2)
-            if (userRole == "T1" || userRole == "T2" || userRole == "SUPER_ADMIN" || userRole == "ADMIN") {
+            // Admin Action Ribbon: Approvals Desk
+            if (isAdmin) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -145,7 +223,7 @@ fun DashboardScreen(
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                "Review fee concessions & changes",
+                                "Review fee concessions & admission updates",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
@@ -203,7 +281,211 @@ fun DashboardScreen(
         }
     }
 
-    if (showChangePinDialog) {
+    // --- ADMIN NOTIFICATIONS FEED DIALOG ---
+    if (showNotificationDialog && isAdmin) {
+        AlertDialog(
+            onDismissRequest = { showNotificationDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Admin Activity Feed")
+                }
+            },
+            text = {
+                if (notificationsList.isEmpty()) {
+                    Text("No recent notifications.", color = Color.Gray)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(notificationsList) { item ->
+                            val iconVector = when (item.type) {
+                                "APPROVAL" -> Icons.Default.Warning
+                                "NEW_ADMISSION" -> Icons.Default.CheckCircle
+                                else -> Icons.Default.Info
+                            }
+                            val iconColor = when (item.type) {
+                                "APPROVAL" -> Color(0xFFD97706)
+                                "NEW_ADMISSION" -> Color(0xFF059669)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(iconVector, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(item.body, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                        if (!item.time.isNullOrBlank()) {
+                                            Text(item.time, fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showNotificationDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // --- FRONT DESK: NEW ADMISSION DIALOG ---
+    if (showAdmitDialog && !isAdmin) {
+        AlertDialog(
+            onDismissRequest = { if (!isSubmittingAdmit) showAdmitDialog = false },
+            title = { Text("New Student Admission") },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        OutlinedTextField(
+                            value = admitAdmNo,
+                            onValueChange = { admitAdmNo = it },
+                            label = { Text("Admission No.") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = admitName,
+                            onValueChange = { admitName = it },
+                            label = { Text("Student Full Name *") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = admitClass,
+                                onValueChange = { admitClass = it },
+                                label = { Text("Class") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = admitSection,
+                                onValueChange = { admitSection = it },
+                                label = { Text("Sec") },
+                                modifier = Modifier.weight(0.7f)
+                            )
+                        }
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = admitType,
+                            onValueChange = { admitType = it },
+                            label = { Text("Type (Day Scholar / Residential)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = admitParentName,
+                            onValueChange = { admitParentName = it },
+                            label = { Text("Parent / Guardian Name *") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = admitParentPhone,
+                            onValueChange = { if (it.length <= 10) admitParentPhone = it },
+                            label = { Text("Parent Phone (10-digit) *") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = admitInitialPayment,
+                            onValueChange = { admitInitialPayment = it },
+                            label = { Text("Initial Fee Deposit (₹, optional)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (admitName.isBlank() || admitParentName.isBlank() || admitParentPhone.length < 10) {
+                            Toast.makeText(context, "Please fill required details and valid 10-digit phone", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        isSubmittingAdmit = true
+                        scope.launch {
+                            try {
+                                val api = ApiClient.getService(context)
+                                val initialPay = admitInitialPayment.toDoubleOrNull() ?: 0.0
+                                val req = StudentAdmissionSubmitRequest(
+                                    admission_no = admitAdmNo.trim(),
+                                    student_name = admitName.trim(),
+                                    class_name = admitClass.trim(),
+                                    section = admitSection.trim(),
+                                    student_type = admitType.trim(),
+                                    parent_name = admitParentName.trim(),
+                                    parent_phone = admitParentPhone.trim(),
+                                    initial_payment_amount = initialPay
+                                )
+                                val res = api.admitStudent(req)
+                                if (res.isSuccessful && res.body()?.isSuccessful() == true) {
+                                    Toast.makeText(context, "Student admitted successfully!", Toast.LENGTH_LONG).show()
+                                    showAdmitDialog = false
+                                    doSearch("")
+                                } else {
+                                    Toast.makeText(context, res.body()?.message ?: "Admission failed (${res.code()})", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isSubmittingAdmit = false
+                            }
+                        }
+                    },
+                    enabled = !isSubmittingAdmit
+                ) {
+                    if (isSubmittingAdmit) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Text("Admit Student")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAdmitDialog = false }, enabled = !isSubmittingAdmit) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // --- CHANGE ADMIN PIN DIALOG ---
+    if (showChangePinDialog && isAdmin) {
         AlertDialog(
             onDismissRequest = { if (!isChangingPin) showChangePinDialog = false },
             title = { Text("Change Admin PIN") },
