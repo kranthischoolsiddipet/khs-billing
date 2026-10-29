@@ -4330,8 +4330,8 @@ def receipt_page(token: str):
     with open(os.path.join(STATIC_DIR, "receipt.html"), "r", encoding="utf-8") as f:
         return f.read()
 
-@app.get("/download-app")
-@app.get("/khs-billing-v1.3.0.apk")
+@app.api_route("/download-app", methods=["GET", "HEAD"])
+@app.api_route("/khs-billing-v1.3.0.apk", methods=["GET", "HEAD"])
 def download_android_apk():
     apk_path = os.path.join(BASE_DIR, "khs-billing-v1.3.0.apk")
     if not os.path.exists(apk_path):
