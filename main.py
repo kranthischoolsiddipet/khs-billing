@@ -4330,6 +4330,23 @@ def receipt_page(token: str):
     with open(os.path.join(STATIC_DIR, "receipt.html"), "r", encoding="utf-8") as f:
         return f.read()
 
+@app.get("/download-app")
+@app.get("/khs-billing-v1.3.0.apk")
+def download_android_apk():
+    apk_path = os.path.join(BASE_DIR, "khs-billing-v1.3.0.apk")
+    if not os.path.exists(apk_path):
+        # Fallback to android_app build output if present
+        debug_apk = os.path.join(BASE_DIR, "android_app", "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+        if os.path.exists(debug_apk):
+            apk_path = debug_apk
+        else:
+            raise HTTPException(status_code=404, detail="APK file not found on server")
+    return FileResponse(
+        path=apk_path,
+        filename="khs-billing-v1.3.0.apk",
+        media_type="application/vnd.android.package-archive"
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
