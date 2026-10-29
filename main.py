@@ -3197,13 +3197,19 @@ def get_student_statement(student_id: int):
     # Sort combined history by date descending
     parsed_history.sort(key=lambda x: str(x.get('reviewed_at') or x.get('created_at') or ''), reverse=True)
 
+    parsed_payments = []
+    for p in payments:
+        pd = dict_from_row(p)
+        pd['collected_by'] = resolve_user_display_name(conn, pd.get('collected_by'))
+        parsed_payments.append(pd)
+
     conn.close()
     total_paid = sum(p['amount_paid'] for p in payments)
     balance = student['final_agreed_fee'] - total_paid
 
     return {
         "student": dict_from_row(student),
-        "payments": [dict_from_row(p) for p in payments],
+        "payments": parsed_payments,
         "total_paid": total_paid,
         "balance_due": max(0.0, balance),
         "pending_change": pending_change_dict,
